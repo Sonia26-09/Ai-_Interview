@@ -1,0 +1,19 @@
+{
+    "settings": "Configuración",
+    "settings_desc": "Administra las preferencias y configuraciones de tu cuenta",
+    "account": "Cuenta",
+    "notifications": "Notificaciones",
+    "privacy": "Privacidad y Seguridad",
+    "preferences": "Preferencias",
+    "account_info": "Información de la Cuenta",
+    "update_profile": "Actualiza los parámetros de tu perfil.",
+    "display_name": "Nombre para mostrar",
+    "email_address": "Dirección de correo electrónico",
+    "save_changes": "Guardar cambios",
+    "interface_settings": "Configuración de la interfaz",
+    "interface_customize": "Personaliza globalmente el aspecto y la sensación de tu experiencia.",
+    "theme_system": "Sistema de Temas",
+    "dark_mode": "Modo Oscuro",
+    "light_mode": "Modo Claro",
+    "display_language": "Idioma de visualización"
+}

@@ -1,0 +1,19 @@
+{
+    "settings": "सेटिंग्स",
+    "settings_desc": "अपनी खाता प्राथमिकताओं और कॉन्फ़िगरेशन को प्रबंधित करें",
+    "account": "खाता",
+    "notifications": "सूचनाएं",
+    "privacy": "गोपनीयता और सुरक्षा",
+    "preferences": "प्राथमिकताएं",
+    "account_info": "खाता जानकारी",
+    "update_profile": "अपने प्रोफ़ाइल पैरामीटर अपडेट करें।",
+    "display_name": "प्रदर्शन नाम",
+    "email_address": "ईमेल पता",
+    "save_changes": "परिवर्तन सहेजें",
+    "interface_settings": "इंटरफ़ेस सेटिंग्स",
+    "interface_customize": "अपने अनुभव के स्वरूप और अनुभव को विश्व स्तर पर अनुकूलित करें।",
+    "theme_system": "थीम सिस्टम",
+    "dark_mode": "डार्क मोड",
+    "light_mode": "लाइट मोड",
+    "display_language": "डिस्प्ले भाषा"
+}

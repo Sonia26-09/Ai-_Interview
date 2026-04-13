@@ -1,0 +1,19 @@
+{
+    "settings": "Settings",
+    "settings_desc": "Manage your account preferences and configurations",
+    "account": "Account",
+    "notifications": "Notifications",
+    "privacy": "Privacy & Security",
+    "preferences": "Preferences",
+    "account_info": "Account Information",
+    "update_profile": "Update your profile parameters.",
+    "display_name": "Display Name",
+    "email_address": "Email Address",
+    "save_changes": "Save Changes",
+    "interface_settings": "Interface Settings",
+    "interface_customize": "Customize the look and feel of your experience globally.",
+    "theme_system": "Theme System",
+    "dark_mode": "Dark Mode",
+    "light_mode": "Light Mode",
+    "display_language": "Display Language"
+}
