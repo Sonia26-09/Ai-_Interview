@@ -89,6 +89,69 @@ export default function SettingsPage() {
     const [isLoading, setIsLoading] = useState(false);
     const [isSavingPreferences, setIsSavingPreferences] = useState(false);
 
+    // 2FA Setup State
+    const [is2faModalOpen, setIs2faModalOpen] = useState(false);
+    const [twoFaOtp, setTwoFaOtp] = useState("");
+    const [is2faVerifying, setIs2faVerifying] = useState(false);
+    const [twoFaError, setTwoFaError] = useState("");
+
+   const handleToggle2FA = async () => {
+  if (preferences.security.twoFactorEnabled) {
+    handlePreferenceChange("security", "twoFactorEnabled", false);
+  } else {
+    setIs2faModalOpen(true);
+    setTwoFaError("");
+    setTwoFaOtp("");
+
+    try {
+      const res = await fetch("/api/auth/2fa/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "generate" }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to send OTP");
+      }
+
+      toast.success("OTP sent to your email!");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to generate OTP");
+      setIs2faModalOpen(false);
+    }
+  }
+};
+
+ const handleVerify2FASetup = async () => {
+  if (twoFaOtp.length < 6) {
+    return setTwoFaError("Enter 6 digit OTP");
+  }
+
+  setIs2faVerifying(true);
+  try {
+    const res = await fetch("/api/auth/2fa/setup", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "verify", otp: twoFaOtp }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      setTwoFaError(data.error || "Invalid OTP");
+      return;
+    }
+
+    toast.success("2FA Enabled!");
+    setIs2faModalOpen(false);
+    updatePreference("security", { twoFactorEnabled: true });
+  } catch (e) {
+    setTwoFaError("Something went wrong. Please try again.");
+  } finally {
+    setIs2faVerifying(false);
+  }
+};
     const handleSaveAccount = (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
@@ -313,7 +376,7 @@ export default function SettingsPage() {
                                             <p className="text-xs text-text-muted mt-1">Requires an OTP upon login.</p>
                                         </div>
                                         <button 
-                                            onClick={() => handlePreferenceChange("security", "twoFactorEnabled", !preferences.security.twoFactorEnabled)}
+                                            onClick={handleToggle2FA}
                                             className={`relative w-11 h-6 rounded-full transition-colors ${preferences.security.twoFactorEnabled ? 'bg-neon-green' : 'bg-border-bright'}`}
                                         >
                                             <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${preferences.security.twoFactorEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
@@ -653,6 +716,47 @@ export default function SettingsPage() {
                     </div>
                 </div>
             </main>
+
+            {/* 2FA Setup Modal */}
+            {is2faModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="glass w-full max-w-sm rounded-2xl border border-white/10 p-6 shadow-2xl relative">
+                        <div className="absolute top-4 right-4">
+                            <button onClick={() => setIs2faModalOpen(false)} className="text-text-muted hover:text-text-primary transition-colors">
+                                &times;
+                            </button>
+                        </div>
+                        <div className="text-center mb-6">
+                            <div className="w-12 h-12 bg-neon-cyan/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <Lock className="w-6 h-6 text-neon-cyan" />
+                            </div>
+                            <h3 className="text-lg font-semibold text-text-primary">Enable 2FA</h3>
+                            <p className="text-sm text-text-muted mt-1">We've sent a 6-digit security code to your email. Enter it below to enable Two-Factor Authentication.</p>
+                        </div>
+                        
+                        <div className="space-y-4">
+                            <Input
+                                label="Security Code"
+                                type="text"
+                                placeholder="000000"
+                                value={twoFaOtp}
+                                onChange={(e) => { setTwoFaOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); setTwoFaError(""); }}
+                                error={twoFaError}
+                                className="text-center font-mono text-xl tracking-[0.5em]"
+                            />
+                            
+                            <Button 
+                                variant="primary" 
+                                className="w-full" 
+                                onClick={handleVerify2FASetup} 
+                                isLoading={is2faVerifying}
+                            >
+                                Verify & Enable
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

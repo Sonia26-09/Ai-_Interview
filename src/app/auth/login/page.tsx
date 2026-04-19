@@ -8,6 +8,10 @@ import { Brain, Mail, Lock, Eye, EyeOff, ArrowRight, Building2, GraduationCap } 
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 
+// Strict email regex — domain must start with a letter, extension must be 2+ letters
+// Blocks: ridhi@23gmail.com, abc@123.com, test@.com, user@gmail.c
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$/;
+
 function LoginPageContent() {
     const searchParams = useSearchParams();
     const [role, setRole] = useState<"student" | "recruiter">(
@@ -19,20 +23,39 @@ function LoginPageContent() {
     const [isLoading, setIsLoading] = useState(false);
     const [emailError, setEmailError] = useState("");
     const [passwordError, setPasswordError] = useState("");
+    
+    // 2FA state
+    const [step, setStep] = useState<"credentials" | "2fa">("credentials");
+    const [tempUserId, setTempUserId] = useState<string | null>(null);
+    const [otp, setOtp] = useState("");
+    const [otpError, setOtpError] = useState("");
 
     const router = useRouter();
+
+    // Real-time email validation on input change
+    const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newValue = e.target.value;
+        setEmail(newValue);
+        // Clear error if user fixes their input
+        if (emailError) {
+            if (EMAIL_REGEX.test(newValue)) {
+                setEmailError("");
+            } else {
+                setEmailError("Please enter a valid email (e.g. name@example.com)");
+            }
+        }
+    };
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setEmailError("");
         setPasswordError("");
         
-        // Validation
+        // Frontend validation — matches backend regex
         let isValid = true;
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         
-        if (!emailRegex.test(email)) {
-            setEmailError("Please enter a proper valid email address.");
+        if (!EMAIL_REGEX.test(email)) {
+            setEmailError("Please enter a valid email (e.g. name@example.com)");
             isValid = false;
         }
         
@@ -46,22 +69,41 @@ function LoginPageContent() {
         setIsLoading(true);
         
         try {
+            // Normalize email before sending — lowercase + trim
+            const normalizedEmail = email.toLowerCase().trim();
+
             const res = await fetch("/api/auth/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, password, role }),
+                body: JSON.stringify({ email: normalizedEmail, password, role }),
             });
 
             const data = await res.json();
 
             if (!res.ok) {
-                // If it's auth failure, show the error below the password field
-                if (data.error === "Invalid credentials") {
-                    setEmailError("Invalid credentials");
-                    setPasswordError("Invalid email or password");
+                // Show specific error messages based on backend response
+                const err = data.error || "Login failed";
+                
+                if (err === "No account found with this email") {
+                    // Email not registered
+                    setEmailError(err);
+                } else if (err === "Incorrect password") {
+                    // Wrong password
+                    setPasswordError(err);
+                } else if (err.toLowerCase().includes("email")) {
+                    // Invalid email format
+                    setEmailError(err);
                 } else {
-                    toast.error(data.error || "Login failed");
+                    // Generic / rate limit / other errors
+                    toast.error(err);
                 }
+                return;
+            }
+
+            if (data.require2Fa) {
+                setTempUserId(data.userId);
+                setStep("2fa");
+                toast.success(data.message || "OTP sent to your email!");
                 return;
             }
 
@@ -71,6 +113,42 @@ function LoginPageContent() {
         } catch (error) {
             console.error("Login error:", error);
             toast.error("Something went wrong. Please try again.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleVerify2Fa = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setOtpError("");
+        
+        if (otp.length < 6) {
+            setOtpError("Please enter the 6-digit code.");
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const res = await fetch("/api/auth/2fa/verify-login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId: tempUserId, otp }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                setOtpError(data.error || "Invalid OTP");
+                toast.error(data.error || "Verification failed");
+                return;
+            }
+
+            toast.success("Login successful!");
+            localStorage.setItem("userName", data.user.name);
+            window.location.href = role === "recruiter" ? "/recruiter/dashboard" : "/student/dashboard";
+        } catch (error) {
+            console.error("2FA error:", error);
+            toast.error("Something went wrong verifying your code.");
         } finally {
             setIsLoading(false);
         }
@@ -114,46 +192,85 @@ function LoginPageContent() {
                     </button>
                 </div>
 
-                <form onSubmit={handleLogin} className="space-y-4">
-                    <Input
-                        label="Email"
-                        type="email"
-                        placeholder="you@example.com"
-                        value={email}
-                        onChange={(e) => { setEmail(e.target.value); setEmailError(""); }}
-                        leftIcon={<Mail className="w-4 h-4" />}
-                        error={emailError}
-                        required
-                    />
-                    <Input
-                        label="Password"
-                        type={showPassword ? "text" : "password"}
-                        placeholder="••••••••"
-                        value={password}
-                        onChange={(e) => { setPassword(e.target.value); setPasswordError(""); }}
-                        leftIcon={<Lock className="w-4 h-4" />}
-                        error={passwordError}
-                        rightIcon={
-                            <button type="button" onClick={() => setShowPassword(!showPassword)} className="cursor-pointer hover:text-text-secondary transition-colors">
-                                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {step === "credentials" ? (
+                    <form onSubmit={handleLogin} className="space-y-4">
+                        <Input
+                            label="Email"
+                            type="email"
+                            placeholder="you@example.com"
+                            value={email}
+                            onChange={handleEmailChange}
+                            leftIcon={<Mail className="w-4 h-4" />}
+                            error={emailError}
+                            required
+                        />
+                        <Input
+                            label="Password"
+                            type={showPassword ? "text" : "password"}
+                            placeholder="••••••••"
+                            value={password}
+                            onChange={(e) => { setPassword(e.target.value); setPasswordError(""); }}
+                            leftIcon={<Lock className="w-4 h-4" />}
+                            error={passwordError}
+                            rightIcon={
+                                <button type="button" onClick={() => setShowPassword(!showPassword)} className="cursor-pointer hover:text-text-secondary transition-colors">
+                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                            }
+                            required
+                        />
+                        <div className="flex justify-end">
+                            <a href="#" className="text-xs text-neon-cyan hover:text-neon-cyan/80 transition-colors">Forgot password?</a>
+                        </div>
+                        <Button
+                            type="submit"
+                            variant="primary"
+                            size="lg"
+                            className="w-full"
+                            isLoading={isLoading}
+                            rightIcon={!isLoading && <ArrowRight className="w-4 h-4" />}
+                        >
+                            Sign In as {role === "student" ? "Student" : "Recruiter"}
+                        </Button>
+                    </form>
+                ) : (
+                    <form onSubmit={handleVerify2Fa} className="space-y-4 animate-in fade-in zoom-in-95 duration-300">
+                        <div className="p-4 rounded-xl border border-neon-cyan/30 bg-neon-cyan/5 mb-6 text-center">
+                            <Lock className="w-6 h-6 text-neon-cyan mx-auto mb-2" />
+                            <h3 className="text-sm font-medium text-text-primary">Two-Factor Authentication</h3>
+                            <p className="text-xs text-text-muted mt-1">We've sent a 6-digit code to <strong>{email}</strong></p>
+                        </div>
+                        <Input
+                            label="Security Code"
+                            type="text"
+                            placeholder="Enter 6-digit OTP"
+                            value={otp}
+                            onChange={(e) => { setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); setOtpError(""); }}
+                            error={otpError}
+                            required
+                            className="text-center font-mono text-lg tracking-[0.5em]"
+                        />
+                        <Button
+                            type="submit"
+                            variant="primary"
+                            size="lg"
+                            className="w-full"
+                            isLoading={isLoading}
+                            rightIcon={!isLoading && <ArrowRight className="w-4 h-4" />}
+                        >
+                            Verify & Log In
+                        </Button>
+                        <div className="text-center mt-4">
+                            <button 
+                                type="button" 
+                                onClick={() => setStep("credentials")} 
+                                className="text-xs text-text-muted hover:text-text-primary transition-colors"
+                            >
+                                Back to login
                             </button>
-                        }
-                        required
-                    />
-                    <div className="flex justify-end">
-                        <a href="#" className="text-xs text-neon-cyan hover:text-neon-cyan/80 transition-colors">Forgot password?</a>
-                    </div>
-                    <Button
-                        type="submit"
-                        variant="primary"
-                        size="lg"
-                        className="w-full"
-                        isLoading={isLoading}
-                        rightIcon={!isLoading && <ArrowRight className="w-4 h-4" />}
-                    >
-                        Sign In as {role === "student" ? "Student" : "Recruiter"}
-                    </Button>
-                </form>
+                        </div>
+                    </form>
+                )}
 
                 {/* Demo quick login */}
                 <div className="mt-4 p-4 glass rounded-xl border border-white/8">

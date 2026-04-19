@@ -16,7 +16,8 @@ const allTechStacks: TechStack[] = [
     "MongoDB", "PostgreSQL", "DSA", "System Design", "AI/ML", "DevOps", "AWS", "Docker",
 ];
 
-const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+// Strict email regex — domain must start with a letter, extension must be 2+ letters
+const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$/;
 
 function SignupContent() {
     const searchParams = useSearchParams();
@@ -54,12 +55,15 @@ function SignupContent() {
     const completeSignup = async () => {
         setIsLoading(true);
         try {
+            // Normalize email before sending — lowercase + trim
+            const normalizedEmail = form.email.toLowerCase().trim();
+
             const res = await fetch("/api/auth/signup", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     name: form.name,
-                    email: form.email,
+                    email: normalizedEmail, // Always send normalized email
                     password: form.password,
                     role,
                     company: form.company,
