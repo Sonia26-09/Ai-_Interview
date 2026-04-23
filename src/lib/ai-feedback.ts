@@ -85,64 +85,176 @@ export function buildAptitudeResult(
     return { questions, selected, feedbacks, score, totalPoints, timeTaken };
 }
 
-// ─── Coding Feedback ───────────────────────────────────────────────────────
 
-const CODING_FEEDBACK_MAP: Record<
-    string,
-    Omit<CodingQuestionFeedback, "questionId" | "score" | "code">
-> = {
-    cq1: {
-        timeComplexity: "O(n)",
-        spaceComplexity: "O(n)",
+// ─── Code Analyser Helpers ─────────────────────────────────────────────────
+
+/** Returns true if the code contains a nested loop pattern (brute-force O(n²)). */
+function hasNestedLoops(code: string): boolean {
+    // Match two separate for/while loop keywords — a simple but reliable heuristic
+    const stripped = code.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    const loops = stripped.match(/\b(for|while)\s*\(/g);
+    return loops !== null && loops.length >= 2;
+}
+
+/** Returns true if the code uses any hash-map / dictionary data structure. */
+function usesHashMap(code: string): boolean {
+    return (
+        /unordered_map|std::map|HashMap|TreeMap|\bmap\b|\bMap\b/.test(code) ||
+        /\{\s*\}|dict\s*\(|\bdict\b|defaultdict|Counter\s*\(/.test(code) ||
+        /new Map\s*\(|Map\s*</.test(code)
+    );
+}
+
+/** Returns true if the code uses a stack data structure. */
+function usesStack(code: string): boolean {
+    return /\bstack\b|push_back|push\(|append\(|\[\s*\]/.test(code);
+}
+
+/** Counts approximate number of for/while loops at the top level. */
+function countLoopDepth(code: string): number {
+    const stripped = code.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    return (stripped.match(/\b(for|while)\s*\(/g) || []).length;
+}
+
+// ─── Per-Question Feedback Builders ────────────────────────────────────────
+
+function buildTwoSumFeedback(code: string, allTestsPassed: boolean) {
+    const bruteForce = hasNestedLoops(code) && !usesHashMap(code);
+    const optimal = usesHashMap(code);
+
+    if (bruteForce) {
+        return {
+            timeComplexity: "O(n²)",
+            spaceComplexity: "O(1)",
+            didWell: [
+                ...(allTestsPassed ? ["Correct solution — all test cases pass ✓"] : ["Brute-force approach detected — some test cases may have failed"]),
+                "Nested-loop approach correctly checks every pair",
+                "Early return on finding the answer keeps things simple",
+            ],
+            improve: [
+                "Your solution is O(n²) — try using a hash map to bring it down to O(n)",
+                "With a hash map, store `num → index` as you iterate and check if `target - num` already exists",
+                "Add input validation (e.g., handle empty arrays)",
+            ],
+            modelApproach:
+                "Iterate through the array once. For each element, compute `complement = target - nums[i]`. If `complement` exists in the hash map, return `[map.get(complement), i]`. Otherwise, store `nums[i] → i` in the map. This gives O(n) time and O(n) space — much faster than O(n²).",
+            edgeCases: [
+                "Duplicate values (e.g., [3,3], target=6 → expect [0,1])",
+                "Negative numbers in the array",
+                "Large arrays — your brute-force O(n²) may TLE on very large inputs",
+            ],
+        };
+    }
+
+    if (optimal) {
+        return {
+            timeComplexity: "O(n)",
+            spaceComplexity: "O(n)",
+            didWell: [
+                ...(allTestsPassed ? ["Correct solution — all test cases pass ✓"] : ["Hash map approach is the right idea, but the output was incorrect"]),
+                "Optimal O(n) hash map approach used",
+                "Single-pass iteration is exactly right",
+            ],
+            improve: [
+                allTestsPassed
+                    ? "Consider using descriptive variable names (e.g., `seen` instead of `map`)"
+                    : "Double-check your index tracking — ensure you return the correct pair of indices",
+                "Add input validation (what if nums is empty?)",
+                "Add a comment explaining the time/space trade-off",
+            ],
+            modelApproach:
+                "Iterate through the array once. For each element, compute `complement = target - nums[i]`. If `complement` exists in the hash map, return `[map.get(complement), i]`. Otherwise, store `nums[i] → i` in the map. This gives O(n) time and O(n) space.",
+            edgeCases: [
+                "Duplicate values (e.g., [3,3], target=6 → expect [0,1])",
+                "Negative numbers in the array",
+                "Target larger than the sum of all elements (no solution)",
+            ],
+        };
+    }
+
+    // Fallback — unrecognised approach
+    return {
+        timeComplexity: allTestsPassed ? "O(n)" : "Unknown",
+        spaceComplexity: "O(1)",
         didWell: [
-            "You identified the Two Sum problem correctly",
-            "Using a hash map is the optimal O(n) approach",
-            "Edge case with duplicate values handled correctly",
+            allTestsPassed
+                ? "Correct solution — all test cases pass ✓"
+                : "Attempted the Two Sum problem — keep working on the logic",
         ],
         improve: [
-            "Add input validation (what if nums is empty?)",
-            "Consider using descriptive variable names (e.g., `seen` instead of `map`)",
-            "Add a JSDoc comment explaining the time/space trade-off",
+            "Use a hash map (object / Map / unordered_map / dict) to achieve O(n) time",
+            "For each element, compute complement = target - nums[i] and check if it was seen before",
+            "Consider edge cases like empty arrays and duplicate values",
         ],
         modelApproach:
             "Iterate through the array once. For each element, compute `complement = target - nums[i]`. If `complement` exists in the hash map, return `[map.get(complement), i]`. Otherwise, store `nums[i] → i` in the map. This gives O(n) time and O(n) space.",
         edgeCases: [
             "Duplicate values (e.g., [3,3], target=6 → expect [0,1])",
             "Negative numbers in the array",
-            "Target larger than the sum of all elements (no solution — though constraints guarantee one exists)",
         ],
-    },
-    cq2: {
+    };
+}
+
+function buildValidParenthesesFeedback(code: string, allTestsPassed: boolean) {
+    const stackUsed = usesStack(code);
+    // Check if code actually references all three bracket types
+    const handlesAllBrackets = /[\(\)]/.test(code) && /[\[\]]/.test(code) && /[\{\}]/.test(code);
+    // Check for early return on mismatch
+    const hasEarlyReturn = /return\s+(false|False)/.test(code);
+    return {
         timeComplexity: "O(n)",
-        spaceComplexity: "O(n)",
+        spaceComplexity: stackUsed ? "O(n)" : "O(1)",
         didWell: [
-            "Stack-based approach is exactly the right intuition",
-            "Correctly handling all three bracket types",
-            "Returning false early on mismatch is efficient",
+            ...(allTestsPassed
+                ? ["Correct solution — all test cases pass ✓"]
+                : stackUsed
+                    ? ["Stack-based approach is the right idea, but output was incorrect"]
+                    : ["Attempted the Valid Parentheses problem"]),
+            ...(stackUsed ? ["Stack data structure used — correct intuition ✓"] : []),
+            ...(handlesAllBrackets && allTestsPassed ? ["Correctly handles all three bracket types: (), [], {}"] : []),
+            ...(hasEarlyReturn && allTestsPassed ? ["Early false return on mismatch is efficient"] : []),
         ],
         improve: [
-            "You can use a Map for the bracket pairs instead of multiple if-else for cleaner code",
-            "Check for empty stack before popping (stack underflow guard)",
-            "Return `stack.length === 0` at the end to handle unclosed brackets",
+            stackUsed
+                ? "Use a Map for bracket pairs instead of multiple if-else for cleaner code"
+                : "Use a stack (array with push/pop) to track unmatched opening brackets",
+            "Always check if the stack is empty before popping to avoid underflow errors",
+            "Return `stack.length === 0` at the end to catch unclosed brackets",
         ],
         modelApproach:
             "Create a stack and a mapping `{')': '(', '}': '{', ']': '['}`. For each character: if it's an open bracket, push it. If it's a close bracket, pop from the stack and check it matches the expected open bracket. Return `stack.length === 0` at the end.",
         edgeCases: [
             'Single bracket like `(` — should return false',
             'Interleaved brackets like `([)]` — should return false',
-            'Empty string `\"\"` — should return true',
+            'Empty string `""` — should return true',
         ],
-    },
-    cq3: {
-        timeComplexity: "O(1) per operation",
+    };
+}
+
+function buildLRUCacheFeedback(code: string, allTestsPassed: boolean) {
+    const hasMap = usesHashMap(code);
+    // Check for both get and put having non-trivial bodies
+    const hasGetImpl = /get\s*\([^)]*\)[^{]*\{[^}]{10,}\}/.test(code)
+        || /def\s+get\s*\([^)]*\)[\s\S]{10,}/.test(code);
+    const hasPutImpl = /put\s*\([^)]*\)[^{]*\{[^}]{10,}\}/.test(code)
+        || /def\s+put\s*\([^)]*\)[\s\S]{10,}/.test(code);
+    return {
+        timeComplexity: hasMap ? "O(1) per operation" : "Unknown",
         spaceComplexity: "O(capacity)",
         didWell: [
-            "Understanding the LRU eviction policy — removing least recently used on overflow",
-            "Recognizing that O(1) requires a combined hash map + linked list structure",
+            ...(allTestsPassed
+                ? ["Correct solution — all test cases pass ✓"]
+                : hasGetImpl && hasPutImpl
+                    ? ["Both get() and put() have implementations — good structure"]
+                    : ["Attempted the LRU Cache design problem"]),
+            ...(hasMap ? ["Hash map used for O(1) key lookup ✓"] : []),
+            ...(allTestsPassed ? ["LRU eviction policy correctly implemented ✓"] : []),
         ],
         improve: [
-            "Use sentinel head/tail nodes in the doubly linked list to simplify edge cases",
-            "Ensure `put()` updates the position of an existing key (move to front) before updating value",
+            !hasGetImpl ? "Implement get() — it must return the cached value or -1 if the key doesn't exist" :
+                "Use sentinel head/tail nodes in the doubly linked list to simplify edge cases",
+            !hasPutImpl ? "Implement put() — it must insert/update and evict the LRU key when over capacity" :
+                "Ensure put() updates the position of an existing key (move to head) before updating its value",
             "Double-check that get() also promotes the accessed key to MRU position",
         ],
         modelApproach:
@@ -152,8 +264,8 @@ const CODING_FEEDBACK_MAP: Record<
             "`get` on a non-existent key must return -1",
             "`put` on an existing key should update value without adding a new node",
         ],
-    },
-};
+    };
+}
 
 const DEFAULT_CODING = {
     timeComplexity: "O(n)",
@@ -184,13 +296,7 @@ export function generateCodingFeedback(
     testsTotal: number,
     isEmptyOrBoilerplate: boolean = false
 ): CodingQuestionFeedback {
-    const meta = CODING_FEEDBACK_MAP[question.id] ?? DEFAULT_CODING;
-    // Score based on test results + code quality heuristics
-    const passRate = testsTotal > 0 ? testsPassed / testsTotal : 0.6;
-    let score = Math.min(100, Math.round(passRate * 80 + 15 + Math.random() * 5));
-
     if (isEmptyOrBoilerplate) {
-        score = 0;
         return {
             questionId: question.id,
             score: 0,
@@ -202,6 +308,35 @@ export function generateCodingFeedback(
             modelApproach: "No solution provided. Make sure to implement the requested logic before clicking submit.",
             edgeCases: ["Empty input bypass detected"],
         };
+    }
+
+    // ── Deterministic score: based purely on test results, no randomness ──
+    const passRate = testsTotal > 0 ? testsPassed / testsTotal : 0;
+    // All tests pass → 100. Partial → proportionally scaled between 0–95.
+    const score = testsPassed === testsTotal && testsTotal > 0
+        ? 100
+        : Math.round(passRate * 95);
+
+    // ── Code-aware feedback based on the actual submission ──
+    const allPassed = testsPassed === testsTotal && testsTotal > 0;
+    let meta;
+    switch (question.id) {
+        case "cq1":
+            meta = buildTwoSumFeedback(_code, allPassed);
+            break;
+        case "cq2":
+            meta = buildValidParenthesesFeedback(_code, allPassed);
+            break;
+        case "cq3":
+            meta = buildLRUCacheFeedback(_code, allPassed);
+            break;
+        default:
+            meta = {
+                ...DEFAULT_CODING,
+                didWell: allPassed
+                    ? DEFAULT_CODING.didWell
+                    : ["Attempted the problem — review the expected output and try again"],
+            };
     }
 
     return {

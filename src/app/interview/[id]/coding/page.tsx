@@ -38,7 +38,7 @@ export default function CodingRoundPage() {
     const [currentQ, setCurrentQ] = useState(0);
     const [code, setCode] = useState(typeof mockCodingQuestions[0].starterCode === 'object' ? mockCodingQuestions[0].starterCode.javascript : mockCodingQuestions[0].starterCode || "");
     const [activeTab, setActiveTab] = useState<"problem" | "hints" | "ai">("problem");
-    const [testResults, setTestResults] = useState<null | { passed: number; total: number; results: boolean[]; isSubmitResult: boolean }>(null);
+    const [testResults, setTestResults] = useState<null | { passed: number; total: number; results: boolean[]; isSubmitResult: boolean; compileError?: boolean; runtimeError?: boolean; errorMessage?: string }>(null);
     const [isRunning, setIsRunning] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
@@ -79,7 +79,22 @@ export default function CodingRoundPage() {
             }
 
             const allTests = q.testCases || [];
-            // For Run action, hide hidden test case results explicitly despite backend returning them
+
+            // Compile / runtime error — show error panel immediately
+            if (data.compileError || data.runtimeError) {
+                setTestResults({
+                    passed: 0,
+                    total: allTests.length,
+                    results: allTests.map(() => false),
+                    isSubmitResult: false,
+                    compileError: data.compileError,
+                    runtimeError: data.runtimeError,
+                    errorMessage: data.error,
+                });
+                return;
+            }
+
+            // For Run action, hide hidden test case results
             const mappedResults = allTests.map((tc, idx) => tc.isHidden ? false : (data.results?.[idx] ?? false));
             const passedVisible = mappedResults.filter((passed, idx) => passed && !allTests[idx].isHidden).length;
 
@@ -88,6 +103,7 @@ export default function CodingRoundPage() {
                 total: allTests.length,
                 results: mappedResults,
                 isSubmitResult: false,
+                errorMessage: data.error,
             });
         } catch (error) {
             toast.error("Code evaluation failed.");
@@ -130,6 +146,9 @@ export default function CodingRoundPage() {
                 total: totalTests,
                 results: data.results || (q.testCases || []).map(() => false),
                 isSubmitResult: true,
+                compileError: data.compileError,
+                runtimeError: data.runtimeError,
+                errorMessage: data.error,
             });
             setActiveTab("ai");
         } catch (error) {
@@ -484,46 +503,71 @@ export default function CodingRoundPage() {
 
                     {/* Test Results Panel */}
                     {testResults && (
-                        <div className="border-t border-white/8 p-4 max-h-[200px] overflow-y-auto">
-                            <div className="flex items-center gap-3 mb-3">
-                                <Terminal className="w-4 h-4 text-neon-cyan" />
-                                <span className="text-sm font-semibold">Test Results</span>
-                                <Badge variant={testResults.passed === testResults.total ? "green" : "yellow"}>
-                                    {testResults.passed}/{testResults.total} passed
-                                </Badge>
-                                {testResults.passed === testResults.total && (
-                                    <span className="text-xs text-neon-green flex items-center gap-1"><Zap className="w-3 h-3" />All tests passed!</span>
-                                )}
-                            </div>
-                            <div className="space-y-2">
-                                {q.testCases?.map((tc, i) => {
-                                    const passed = testResults.results[i];
-                                    const isHidden = tc.isHidden;
-                                    const notEvaluated = isHidden && !testResults.isSubmitResult;
-                                    return (
-                                        <div key={tc.id} className={cn(
-                                            "flex items-center gap-3 text-xs p-2 rounded-lg",
-                                            notEvaluated
-                                                ? "bg-white/3 border border-white/10"
-                                                : passed
-                                                    ? "bg-neon-green/5 border border-neon-green/20"
-                                                    : "bg-red-500/5 border border-red-500/20"
-                                        )}>
-                                            {notEvaluated
-                                                ? <EyeOff className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
-                                                : passed
-                                                    ? <CheckCircle2 className="w-3.5 h-3.5 text-neon-green flex-shrink-0" />
-                                                    : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />}
-                                            <span className="text-text-secondary">
-                                                Test {i + 1}{isHidden ? " (hidden)" : ""}: {notEvaluated ? "Not Evaluated" : passed ? "Passed ✓" : "Failed ✗"}
-                                            </span>
-                                            {!isHidden && !passed && (
-                                                <span className="ml-auto text-text-muted">Expected: {tc.expectedOutput}</span>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                        <div className="border-t border-white/8 p-4 max-h-[240px] overflow-y-auto">
+
+                            {/* Compile / Runtime Error Banner */}
+                            {(testResults.compileError || testResults.runtimeError) && testResults.errorMessage ? (
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <Terminal className="w-4 h-4 text-red-400" />
+                                        <span className="text-sm font-semibold text-red-400">
+                                            {testResults.compileError ? '🔴 Compilation Error' : '🟠 Runtime Error'}
+                                        </span>
+                                    </div>
+                                    <pre className="text-xs font-mono text-red-300/90 bg-red-500/8 border border-red-500/20 rounded-lg p-3 whitespace-pre-wrap leading-relaxed overflow-x-auto">{testResults.errorMessage}</pre>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex items-center gap-3 mb-3">
+                                        <Terminal className="w-4 h-4 text-neon-cyan" />
+                                        <span className="text-sm font-semibold">Test Results</span>
+                                        {(() => {
+                                            const visibleTests = q.testCases?.filter(tc => !tc.isHidden) || [];
+                                            const visiblePassed = testResults.results.filter((p, idx) => p && !q.testCases?.[idx]?.isHidden).length;
+                                            const displayPassed = testResults.isSubmitResult ? testResults.passed : visiblePassed;
+                                            const displayTotal = testResults.isSubmitResult ? testResults.total : visibleTests.length;
+                                            const allVisiblePassed = displayPassed === displayTotal;
+                                            return (
+                                                <>
+                                                    <Badge variant={allVisiblePassed ? "green" : "yellow"}>
+                                                        {displayPassed}/{displayTotal} {!testResults.isSubmitResult ? 'visible ' : ''}passed
+                                                    </Badge>
+                                                    {testResults.isSubmitResult && testResults.passed === testResults.total && (
+                                                        <span className="text-xs text-neon-green flex items-center gap-1"><Zap className="w-3 h-3" />All tests passed!</span>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                    <div className="space-y-2">
+                                        {q.testCases?.map((tc, i) => {
+                                            const passed = testResults.results[i];
+                                            const isHidden = tc.isHidden;
+                                            const notEvaluated = isHidden && !testResults.isSubmitResult;
+                                            return (
+                                                <div key={tc.id} className={cn(
+                                                    "flex items-center gap-3 text-xs p-2 rounded-lg",
+                                                    notEvaluated ? "bg-white/3 border border-white/10"
+                                                        : passed ? "bg-neon-green/5 border border-neon-green/20"
+                                                            : "bg-red-500/5 border border-red-500/20"
+                                                )}>
+                                                    {notEvaluated
+                                                        ? <EyeOff className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+                                                        : passed
+                                                            ? <CheckCircle2 className="w-3.5 h-3.5 text-neon-green flex-shrink-0" />
+                                                            : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />}
+                                                    <span className="text-text-secondary">
+                                                        Test {i + 1}{isHidden ? ' (hidden)' : ''}: {notEvaluated ? 'Not Evaluated' : passed ? 'Passed ✓' : 'Failed ✗'}
+                                                    </span>
+                                                    {!isHidden && !passed && (
+                                                        <span className="ml-auto text-text-muted">Expected: {tc.expectedOutput}</span>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
 
