@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
     Search, Filter, Plus, Users, Brain, Calendar, ChevronRight,
     Building2, Clock, MoreVertical, Copy, Trash2, Eye, PlayCircle
@@ -24,6 +24,12 @@ export default function RecruiterInterviews() {
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<"all" | "active" | "draft" | "closed">("all");
     const [openMenu, setOpenMenu] = useState<string | null>(null);
+    const [userName, setUserName] = useState("Recruiter");
+
+    useEffect(() => {
+        const storedName = localStorage.getItem("userName");
+        if (storedName) setUserName(storedName);
+    }, []);
 
     const filtered = mockInterviews.filter((i) => {
         const matchSearch = i.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -34,7 +40,7 @@ export default function RecruiterInterviews() {
 
     return (
         <div className="min-h-screen">
-            <Navbar role="recruiter" userName="Sarah Chen" />
+            <Navbar role="recruiter" userName={userName} />
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">

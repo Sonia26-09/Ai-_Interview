@@ -5,8 +5,20 @@ export interface IUser extends Document {
   email: string;
   password?: string;
   role: "student" | "recruiter";
+  isVerified: boolean;
   company?: string;
   techStack?: string[];
+  // ─── Student Stats ────────────────────────────────────────
+  xp: number;
+  level: number;
+  streak: number;
+  totalAttempts: number;
+  averageScore: number;
+  badges: { id: string; name: string; description: string; icon: string; color: string; earnedAt: Date }[];
+  // ─── Recruiter Stats ──────────────────────────────────────
+  totalInterviews: number;
+  activeRoles: number;
+  // ─── Preferences ──────────────────────────────────────────
   preferences: {
     theme: "light" | "dark";
     language: string;
@@ -39,8 +51,19 @@ const UserSchema = new Schema<IUser>(
     email: { type: String, required: true, unique: true },
     password: { type: String }, // Optional for OAuth
     role: { type: String, enum: ["student", "recruiter"], required: true },
+    isVerified: { type: Boolean, default: false },
     company: { type: String },
     techStack: [{ type: String }],
+    // ─── Student Stats (all default to zero) ────────────────
+    xp: { type: Number, default: 0 },
+    level: { type: Number, default: 1 },
+    streak: { type: Number, default: 0 },
+    totalAttempts: { type: Number, default: 0 },
+    averageScore: { type: Number, default: 0 },
+    badges: { type: [{ id: String, name: String, description: String, icon: String, color: String, earnedAt: Date }], default: [] },
+    // ─── Recruiter Stats ────────────────────────────────────
+    totalInterviews: { type: Number, default: 0 },
+    activeRoles: { type: Number, default: 0 },
     preferences: {
       theme: { type: String, enum: ["light", "dark"], default: "dark" },
       language: { type: String, default: "English" },

@@ -25,13 +25,37 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
 });
 
 // ── Language config ────────────────────────────────────────────────────────────
-type LangId = "javascript" | "python" | "c" | "cpp";
-const LANGUAGES: { id: LangId; label: string; ext: string }[] = [
-    { id: "javascript", label: "JavaScript", ext: "js"  },
-    { id: "python",     label: "Python",     ext: "py"  },
-    { id: "c",          label: "C",           ext: "c"   },
-    { id: "cpp",        label: "C++",         ext: "cpp" },
+type LangId = "javascript" | "python" | "c" | "cpp" | "java" | "go" | "typescript" | "rust" | "ruby" | "csharp" | "php";
+const LANGUAGES: { id: LangId; label: string; ext: string; monacoId: string }[] = [
+    { id: "javascript",  label: "JavaScript",  ext: "js",     monacoId: "javascript"  },
+    { id: "typescript",  label: "TypeScript",   ext: "ts",     monacoId: "typescript"  },
+    { id: "python",      label: "Python",       ext: "py",     monacoId: "python"      },
+    { id: "c",           label: "C",            ext: "c",      monacoId: "c"           },
+    { id: "cpp",         label: "C++",          ext: "cpp",    monacoId: "cpp"         },
+    { id: "java",        label: "Java",         ext: "java",   monacoId: "java"        },
+    { id: "go",          label: "Go",           ext: "go",     monacoId: "go"          },
+    { id: "rust",        label: "Rust",         ext: "rs",     monacoId: "rust"        },
+    { id: "ruby",        label: "Ruby",         ext: "rb",     monacoId: "ruby"        },
+    { id: "csharp",      label: "C#",           ext: "cs",     monacoId: "csharp"      },
+    { id: "php",         label: "PHP",          ext: "php",    monacoId: "php"         },
 ];
+
+/** Execution output from /api/execute */
+interface ExecOutput {
+    stdout?: string;
+    stderr?: string;
+    compile_error?: string;
+    status?: "success" | "compile_error" | "runtime_error" | "timeout" | "error";
+    exit_code?: number;
+    error?: string;
+    time?: string;
+    memory?: string;
+    testResults?: {
+        passed: number;
+        total: number;
+        results: { id: number; passed: boolean; expected?: string; got?: string }[];
+    };
+}
 
 export default function CodingRoundPage() {
     const params = useParams();
@@ -45,6 +69,10 @@ export default function CodingRoundPage() {
     const [aiFeedback, setAiFeedback] = useState<CodingQuestionFeedback | null>(null);
     const [allFeedbacks, setAllFeedbacks] = useState<CodingQuestionFeedback[]>([]);
     const [language, setLanguage] = useState<LangId>("javascript");
+    const [stdinInput, setStdinInput] = useState("");
+    const [showStdin, setShowStdin] = useState(false);
+    const [execOutput, setExecOutput] = useState<ExecOutput | null>(null);
+    const [runTimedOut, setRunTimedOut] = useState(false);
 
     const q = mockCodingQuestions[currentQ];
 
@@ -60,53 +88,60 @@ export default function CodingRoundPage() {
     };
 
     const runCode = async () => {
-        if (checkBoilerplate()) {
-            setTestResults({ passed: 0, total: q.testCases?.length || 0, results: (q.testCases || []).map(() => false), isSubmitResult: false });
+        if (!code.trim()) {
+            toast.error("Please write some code first");
             return;
         }
 
         setIsRunning(true);
+        setExecOutput(null);
+        setTestResults(null);
+        setRunTimedOut(false);
+
+        // 15-second client-side timeout
+        const controller = new AbortController();
+        const clientTimeout = setTimeout(() => {
+            controller.abort();
+            setRunTimedOut(true);
+        }, 15000);
+
         try {
-            const res = await fetch("/api/evaluate", {
+            const res = await fetch("/api/execute", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code, testCases: q.testCases || [], language })
+                body: JSON.stringify({
+                    code, language,
+                    stdin: stdinInput,
+                    functionName: q.functionName,
+                    testCases: q.testCases,
+                }),
+                signal: controller.signal,
             });
-            const data = await res.json();
+            clearTimeout(clientTimeout);
 
-            if (data.error && data.error.includes("not supported natively")) {
-                toast.error(data.error);
+            const data: ExecOutput = await res.json();
+
+            // Show stdin hint if code likely needs input but stdin is empty
+            if (data.status === 'runtime_error' && !stdinInput &&
+                (data.stderr?.includes('EOFError') || data.stderr?.includes('NoSuchElementException') || data.stderr?.includes('scanf'))) {
+                toast("Your code requires input — use the stdin box below", { icon: "💡" });
+                setShowStdin(true);
             }
 
-            const allTests = q.testCases || [];
-
-            // Compile / runtime error — show error panel immediately
-            if (data.compileError || data.runtimeError) {
-                setTestResults({
-                    passed: 0,
-                    total: allTests.length,
-                    results: allTests.map(() => false),
-                    isSubmitResult: false,
-                    compileError: data.compileError,
-                    runtimeError: data.runtimeError,
-                    errorMessage: data.error,
+            setExecOutput(data);
+            setRunTimedOut(false);
+        } catch (err: any) {
+            clearTimeout(clientTimeout);
+            if (err.name === 'AbortError') {
+                setExecOutput({
+                    error: 'Execution timed out. Please check for infinite loops.',
                 });
-                return;
+                setRunTimedOut(true);
+            } else {
+                setExecOutput({
+                    error: 'Something went wrong — please try again',
+                });
             }
-
-            // For Run action, hide hidden test case results
-            const mappedResults = allTests.map((tc, idx) => tc.isHidden ? false : (data.results?.[idx] ?? false));
-            const passedVisible = mappedResults.filter((passed, idx) => passed && !allTests[idx].isHidden).length;
-
-            setTestResults({
-                passed: passedVisible,
-                total: allTests.length,
-                results: mappedResults,
-                isSubmitResult: false,
-                errorMessage: data.error,
-            });
-        } catch (error) {
-            toast.error("Code evaluation failed.");
         } finally {
             setIsRunning(false);
         }
@@ -164,6 +199,7 @@ export default function CodingRoundPage() {
         const nextStarter = mockCodingQuestions[nextIdx]?.starterCode;
         setCode(typeof nextStarter === 'object' ? nextStarter[language] : nextStarter || "");
         setTestResults(null);
+        setExecOutput(null);
         setAiFeedback(null);
         setActiveTab("problem");
     };
@@ -237,6 +273,7 @@ export default function CodingRoundPage() {
                                     const nextStarter = mockCodingQuestions[i].starterCode;
                                     setCode(typeof nextStarter === 'object' ? nextStarter[language] : nextStarter || "");
                                     setTestResults(null);
+                                    setExecOutput(null);
                                     setAiFeedback(null);
                                     setActiveTab("problem");
                                 }}
@@ -458,8 +495,8 @@ export default function CodingRoundPage() {
                         </div>
                         <div className="flex items-center gap-2">
                             <Button variant="secondary" size="sm" leftIcon={<Play className="w-3.5 h-3.5" />}
-                                isLoading={isRunning} onClick={runCode}>Run</Button>
-                            <Button variant="neon-green" size="sm" isLoading={isSubmitting} onClick={submitCode}>
+                                isLoading={isRunning} disabled={isRunning || isSubmitting} onClick={runCode}>Run</Button>
+                            <Button variant="neon-green" size="sm" isLoading={isSubmitting} disabled={isRunning || isSubmitting} onClick={submitCode}>
                                 Submit &amp; Analyze
                             </Button>
                             {aiFeedback && currentQ < mockCodingQuestions.length - 1 && (
@@ -477,11 +514,11 @@ export default function CodingRoundPage() {
                         </div>
                     </div>
 
-                    {/* FIX: Monaco editor with dynamic `language` prop instead of hardcoded "javascript" */}
+                    {/* Monaco editor with dynamic language */}
                     <div className="flex-1 overflow-hidden">
                         <MonacoEditor
                             height="100%"
-                            language={language}
+                            language={currentLang?.monacoId ?? "javascript"}
                             theme="vs-dark"
                             value={code}
                             onChange={v => setCode(v || "")}
@@ -501,72 +538,177 @@ export default function CodingRoundPage() {
                         />
                     </div>
 
-                    {/* Test Results Panel */}
-                    {testResults && (
-                        <div className="border-t border-white/8 p-4 max-h-[240px] overflow-y-auto">
+                    {/* Stdin input (collapsible) */}
+                    <div className="border-t border-white/8">
+                        <button
+                            onClick={() => setShowStdin(!showStdin)}
+                            className="w-full px-4 py-1.5 text-xs text-text-muted hover:text-text-secondary flex items-center gap-1.5 transition-colors"
+                        >
+                            <Terminal className="w-3 h-3" />
+                            stdin {showStdin ? '▾' : '▸'}
+                        </button>
+                        {showStdin && (
+                            <textarea
+                                value={stdinInput}
+                                onChange={e => setStdinInput(e.target.value)}
+                                placeholder="Enter input for your program here (one value per line)..."
+                                className="w-full px-4 py-2 bg-black/30 text-xs font-mono text-text-secondary border-t border-white/5 resize-none focus:outline-none placeholder:text-white/20"
+                                rows={3}
+                            />
+                        )}
+                    </div>
 
-                            {/* Compile / Runtime Error Banner */}
-                            {(testResults.compileError || testResults.runtimeError) && testResults.errorMessage ? (
-                                <div>
+                    {/* ── Output Panel ── */}
+                    {(execOutput || testResults) && (
+                        <div className="border-t border-white/8 p-4 max-h-[280px] overflow-y-auto">
+
+                            {/* Execution Output (from Run button) */}
+                            {execOutput && (
+                                <div className="mb-3">
                                     <div className="flex items-center gap-2 mb-2">
-                                        <Terminal className="w-4 h-4 text-red-400" />
-                                        <span className="text-sm font-semibold text-red-400">
-                                            {testResults.compileError ? '🔴 Compilation Error' : '🟠 Runtime Error'}
-                                        </span>
-                                    </div>
-                                    <pre className="text-xs font-mono text-red-300/90 bg-red-500/8 border border-red-500/20 rounded-lg p-3 whitespace-pre-wrap leading-relaxed overflow-x-auto">{testResults.errorMessage}</pre>
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="flex items-center gap-3 mb-3">
                                         <Terminal className="w-4 h-4 text-neon-cyan" />
-                                        <span className="text-sm font-semibold">Test Results</span>
-                                        {(() => {
-                                            const visibleTests = q.testCases?.filter(tc => !tc.isHidden) || [];
-                                            const visiblePassed = testResults.results.filter((p, idx) => p && !q.testCases?.[idx]?.isHidden).length;
-                                            const displayPassed = testResults.isSubmitResult ? testResults.passed : visiblePassed;
-                                            const displayTotal = testResults.isSubmitResult ? testResults.total : visibleTests.length;
-                                            const allVisiblePassed = displayPassed === displayTotal;
-                                            return (
-                                                <>
-                                                    <Badge variant={allVisiblePassed ? "green" : "yellow"}>
-                                                        {displayPassed}/{displayTotal} {!testResults.isSubmitResult ? 'visible ' : ''}passed
-                                                    </Badge>
-                                                    {testResults.isSubmitResult && testResults.passed === testResults.total && (
-                                                        <span className="text-xs text-neon-green flex items-center gap-1"><Zap className="w-3 h-3" />All tests passed!</span>
-                                                    )}
-                                                </>
-                                            );
-                                        })()}
+                                        <span className="text-sm font-semibold">Output</span>
+                                        {execOutput.time && (
+                                            <Badge variant="default" size="sm">⏱ {execOutput.time}</Badge>
+                                        )}
+                                        {execOutput.memory && (
+                                            <Badge variant="default" size="sm">💾 {execOutput.memory}</Badge>
+                                        )}
+                                        {execOutput.status === 'success' && <Badge variant="green" size="sm">✓ Success</Badge>}
+                                        {execOutput.status === 'compile_error' && <Badge variant="red" size="sm">Compilation Error</Badge>}
+                                        {execOutput.status === 'runtime_error' && <Badge variant="red" size="sm">Runtime Error</Badge>}
+                                        {execOutput.status === 'error' && <Badge variant="red" size="sm">Error</Badge>}
                                     </div>
-                                    <div className="space-y-2">
-                                        {q.testCases?.map((tc, i) => {
-                                            const passed = testResults.results[i];
-                                            const isHidden = tc.isHidden;
-                                            const notEvaluated = isHidden && !testResults.isSubmitResult;
-                                            return (
-                                                <div key={tc.id} className={cn(
-                                                    "flex items-center gap-3 text-xs p-2 rounded-lg",
-                                                    notEvaluated ? "bg-white/3 border border-white/10"
-                                                        : passed ? "bg-neon-green/5 border border-neon-green/20"
-                                                            : "bg-red-500/5 border border-red-500/20"
-                                                )}>
-                                                    {notEvaluated
-                                                        ? <EyeOff className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
-                                                        : passed
-                                                            ? <CheckCircle2 className="w-3.5 h-3.5 text-neon-green flex-shrink-0" />
-                                                            : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />}
-                                                    <span className="text-text-secondary">
-                                                        Test {i + 1}{isHidden ? ' (hidden)' : ''}: {notEvaluated ? 'Not Evaluated' : passed ? 'Passed ✓' : 'Failed ✗'}
-                                                    </span>
-                                                    {!isHidden && !passed && (
-                                                        <span className="ml-auto text-text-muted">Expected: {tc.expectedOutput}</span>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </>
+
+                                    {/* Service-level error (e.g., API unavailable) */}
+                                    {execOutput.error && (
+                                        <pre className="text-xs font-mono text-red-300/90 bg-red-500/8 border border-red-500/20 rounded-lg p-3 whitespace-pre-wrap leading-relaxed mb-2">{execOutput.error}</pre>
+                                    )}
+
+                                    {/* Compile error */}
+                                    {execOutput.compile_error && (
+                                        <div className="mb-2">
+                                            <div className="text-xs font-semibold text-red-400 mb-1">🔴 Compilation Failed</div>
+                                            <pre className="text-xs font-mono text-red-300/90 bg-red-500/8 border border-red-500/20 rounded-lg p-3 whitespace-pre-wrap leading-relaxed overflow-x-auto">{execOutput.compile_error}</pre>
+                                        </div>
+                                    )}
+
+                                    {/* Stderr / runtime error */}
+                                    {execOutput.stderr && !execOutput.compile_error && (
+                                        <div className="mb-2">
+                                            <div className="text-xs font-semibold text-red-400 mb-1">🔴 Runtime Error</div>
+                                            <pre className="text-xs font-mono text-red-300/90 bg-red-500/8 border border-red-500/20 rounded-lg p-3 whitespace-pre-wrap leading-relaxed overflow-x-auto">{execOutput.stderr}</pre>
+                                        </div>
+                                    )}
+
+                                    {/* ── LeetCode-style test results ── */}
+                                    {execOutput.testResults && (
+                                        <div className="mb-3">
+                                            <div className="text-xs font-semibold text-text-secondary mb-2">
+                                                {execOutput.testResults.passed}/{execOutput.testResults.total} test cases passed
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                {execOutput.testResults.results.map((r) => (
+                                                    <div key={r.id} className={`text-xs font-mono rounded-lg p-2.5 border ${
+                                                        r.passed
+                                                            ? 'bg-neon-green/5 border-neon-green/20 text-neon-green'
+                                                            : 'bg-red-500/8 border-red-500/20 text-red-300'
+                                                    }`}>
+                                                        <div className="font-semibold">
+                                                            {r.passed ? '✓' : '✗'} Test Case {r.id}: {r.passed ? 'PASSED' : 'FAILED'}
+                                                        </div>
+                                                        {!r.passed && r.expected && (
+                                                            <div className="mt-1 text-red-400/80">
+                                                                <div>Expected: {r.expected}</div>
+                                                                <div>Got: {r.got}</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Stdout (only show raw if no test results) */}
+                                    {!execOutput.testResults && execOutput.stdout ? (
+                                        <pre className="text-xs font-mono text-neon-green/90 bg-neon-green/5 border border-neon-green/20 rounded-lg p-3 whitespace-pre-wrap leading-relaxed overflow-x-auto">{execOutput.stdout}</pre>
+                                    ) : !execOutput.testResults && execOutput.status === 'success' && !execOutput.compile_error && !execOutput.stderr && !execOutput.error ? (
+                                        <pre className="text-xs font-mono text-text-muted bg-white/3 border border-white/10 rounded-lg p-3">Code ran successfully with no output.</pre>
+                                    ) : null}
+
+                                    {/* Retry button on timeout */}
+                                    {runTimedOut && (
+                                        <button onClick={runCode} className="mt-2 text-xs text-neon-cyan hover:underline">🔄 Retry</button>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Test Results (from Submit button) */}
+                            {testResults && (
+                                <div>
+                                    {(testResults.compileError || testResults.runtimeError) && testResults.errorMessage ? (
+                                        <div>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <Terminal className="w-4 h-4 text-red-400" />
+                                                <span className="text-sm font-semibold text-red-400">
+                                                    {testResults.compileError ? '🔴 Compilation Error' : '🟠 Runtime Error'}
+                                                </span>
+                                            </div>
+                                            <pre className="text-xs font-mono text-red-300/90 bg-red-500/8 border border-red-500/20 rounded-lg p-3 whitespace-pre-wrap leading-relaxed overflow-x-auto">{testResults.errorMessage}</pre>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="flex items-center gap-3 mb-3">
+                                                <Terminal className="w-4 h-4 text-neon-cyan" />
+                                                <span className="text-sm font-semibold">Test Results</span>
+                                                {(() => {
+                                                    const visibleTests = q.testCases?.filter(tc => !tc.isHidden) || [];
+                                                    const visiblePassed = testResults.results.filter((p, idx) => p && !q.testCases?.[idx]?.isHidden).length;
+                                                    const displayPassed = testResults.isSubmitResult ? testResults.passed : visiblePassed;
+                                                    const displayTotal = testResults.isSubmitResult ? testResults.total : visibleTests.length;
+                                                    const allVisiblePassed = displayPassed === displayTotal;
+                                                    return (
+                                                        <>
+                                                            <Badge variant={allVisiblePassed ? "green" : "yellow"}>
+                                                                {displayPassed}/{displayTotal} {!testResults.isSubmitResult ? 'visible ' : ''}passed
+                                                            </Badge>
+                                                            {testResults.isSubmitResult && testResults.passed === testResults.total && (
+                                                                <span className="text-xs text-neon-green flex items-center gap-1"><Zap className="w-3 h-3" />All tests passed!</span>
+                                                            )}
+                                                        </>
+                                                    );
+                                                })()}
+                                            </div>
+                                            <div className="space-y-2">
+                                                {q.testCases?.map((tc, i) => {
+                                                    const passed = testResults.results[i];
+                                                    const isHidden = tc.isHidden;
+                                                    const notEvaluated = isHidden && !testResults.isSubmitResult;
+                                                    return (
+                                                        <div key={tc.id} className={cn(
+                                                            "flex items-center gap-3 text-xs p-2 rounded-lg",
+                                                            notEvaluated ? "bg-white/3 border border-white/10"
+                                                                : passed ? "bg-neon-green/5 border border-neon-green/20"
+                                                                    : "bg-red-500/5 border border-red-500/20"
+                                                        )}>
+                                                            {notEvaluated
+                                                                ? <EyeOff className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+                                                                : passed
+                                                                    ? <CheckCircle2 className="w-3.5 h-3.5 text-neon-green flex-shrink-0" />
+                                                                    : <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />}
+                                                            <span className="text-text-secondary">
+                                                                Test {i + 1}{isHidden ? ' (hidden)' : ''}: {notEvaluated ? 'Not Evaluated' : passed ? 'Passed ✓' : 'Failed ✗'}
+                                                            </span>
+                                                            {!isHidden && !passed && (
+                                                                <span className="ml-auto text-text-muted">Expected: {tc.expectedOutput}</span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
                             )}
                         </div>
                     )}

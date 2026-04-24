@@ -99,6 +99,7 @@ export interface Question {
     correctOption?: number; // for MCQ
     starterCode?: Record<string, string>; // for coding
     testCases?: TestCase[]; // for coding
+    functionName?: string; // for coding — e.g. "twoSum", "isValid"
     expectedAnswer?: string; // for HR
     aiHints?: string[];
     tags: string[];
@@ -111,6 +112,15 @@ export interface TestCase {
     expectedOutput: string;
     isHidden: boolean;
     description?: string;
+    // Per-language executable input code for LeetCode-style wrapping
+    inputCpp?: string;
+    inputJava?: string;
+    inputPython?: string;
+    inputJs?: string;
+    argsCpp?: string;
+    argsJava?: string;
+    argsPython?: string;
+    argsJs?: string;
 }
 
 export interface Attempt {

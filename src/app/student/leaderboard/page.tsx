@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Trophy, Flame, Zap, Clock, Award, TrendingUp, TrendingDown, Minus, Calendar } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Badge from "@/components/ui/Badge";
@@ -11,10 +11,16 @@ const periods = ["Weekly", "Monthly", "All Time"];
 
 export default function LeaderboardPage() {
     const [period, setPeriod] = useState("Weekly");
+    const [userName, setUserName] = useState("Student");
+
+    useEffect(() => {
+        const storedName = localStorage.getItem("userName");
+        if (storedName) setUserName(storedName);
+    }, []);
 
     return (
         <div className="min-h-screen">
-            <Navbar role="student" userName="Arjun Mehta" />
+            <Navbar role="student" userName={userName} />
             <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                     <div>

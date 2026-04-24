@@ -34,12 +34,7 @@ interface Message {
     answerText?: string;
 }
 
-const AI_FOLLOWUPS = [
-    "That's a great example! Can you elaborate on what specific steps you took to resolve it?",
-    "Interesting perspective. How did that experience shape your approach to similar situations?",
-    "Thank you for sharing. What would you do differently if you faced the same situation today?",
-    "I appreciate your transparency. How did your team respond to your leadership in that moment?",
-];
+
 
 const SCORE_LABELS: Record<string, string> = {
     clarity: "Clarity",
@@ -61,7 +56,7 @@ export default function HRRoundPage() {
     const [messages, setMessages] = useState<Message[]>([
         {
             role: "ai",
-            content: "Hello, thank you for joining today. I'm your HR interviewer. Let's begin with a brief introduction about yourself.",
+            content: "Hi, good to have you here. I'm Meera — I'll be conducting your interview today. Why don't you start by telling me a bit about yourself — your background, what you've been working on recently?",
             timestamp: new Date(),
         }
     ]);

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import {
     Zap, Flame, Target, TrendingUp, Clock, Award, BookOpen,
     ChevronRight, Play, BarChart3, Star, Users, Calendar, Brain
@@ -9,74 +9,137 @@ import {
 import Navbar from "@/components/layout/Navbar";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
-import {
-    RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer,
-    AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
-} from "recharts";
-import { mockStudents, mockSkillScores, weeklyProgress, practiceTemplates } from "@/lib/mock-data";
+import { practiceTemplates } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
-const student = mockStudents[0];
+// Lazy load heavy recharts components
+const LazyCharts = lazy(() => import("@/components/dashboard/StudentCharts"));
 
-// Heatmap data for DSA topics
-const heatmapTopics = [
-    { topic: "Arrays", score: 85, category: "dsa" },
-    { topic: "Strings", score: 78, category: "dsa" },
-    { topic: "Trees", score: 62, category: "dsa" },
-    { topic: "Graphs", score: 45, category: "dsa" },
-    { topic: "DP", score: 40, category: "dsa" },
-    { topic: "Sorting", score: 90, category: "dsa" },
-    { topic: "BST", score: 70, category: "dsa" },
-    { topic: "Heap", score: 55, category: "dsa" },
-    { topic: "React", score: 88, category: "frontend" },
-    { topic: "JS/TS", score: 92, category: "frontend" },
-    { topic: "CSS", score: 75, category: "frontend" },
-    { topic: "APIs", score: 85, category: "backend" },
-    { topic: "Node.js", score: 80, category: "backend" },
-    { topic: "MongoDB", score: 65, category: "backend" },
-    { topic: "Communication", score: 72, category: "hr" },
-    { topic: "Behavioural", score: 68, category: "hr" },
-];
-
-function getHeatColor(score: number) {
-    if (score >= 80) return "bg-neon-green/80 text-background border-neon-green";
-    if (score >= 65) return "bg-neon-cyan/40 text-neon-cyan border-neon-cyan/50";
-    if (score >= 50) return "bg-yellow-500/30 text-yellow-300 border-yellow-500/40";
-    return "bg-red-500/20 text-red-300 border-red-500/30";
+// ─── Skeleton Loader ─────────────────────────────────────────────
+function DashboardSkeleton() {
+    return (
+        <div className="min-h-screen">
+            <Navbar role="student" userName="..." />
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <div className="animate-pulse space-y-6">
+                    {/* Header skeleton */}
+                    <div>
+                        <div className="h-8 w-48 bg-white/5 rounded-lg mb-2" />
+                        <div className="h-4 w-64 bg-white/5 rounded-lg" />
+                    </div>
+                    {/* XP Card skeleton */}
+                    <div className="h-32 bg-white/5 rounded-2xl border border-white/8" />
+                    {/* Stats grid skeleton */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        {[1, 2, 3, 4].map(i => (
+                            <div key={i} className="h-28 bg-white/5 rounded-2xl border border-white/8" />
+                        ))}
+                    </div>
+                    {/* Charts skeleton */}
+                    <div className="grid lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-2 h-64 bg-white/5 rounded-2xl border border-white/8" />
+                        <div className="h-64 bg-white/5 rounded-2xl border border-white/8" />
+                    </div>
+                </div>
+            </main>
+        </div>
+    );
 }
 
-const radarData = [
-    { subject: "DSA", score: 70 },
-    { subject: "Frontend", score: 88 },
-    { subject: "Backend", score: 78 },
-    { subject: "HR", score: 68 },
-    { subject: "System Design", score: 55 },
-    { subject: "Aptitude", score: 82 },
-];
+// ─── Chart Loading Fallback ─────────────────────────────────────
+function ChartSkeleton() {
+    return (
+        <div className="grid lg:grid-cols-3 gap-6 mb-6">
+            <div className="lg:col-span-2 glass rounded-2xl border border-white/8 p-6 h-[240px] flex items-center justify-center">
+                <div className="text-text-muted text-sm animate-pulse">Loading charts...</div>
+            </div>
+            <div className="glass rounded-2xl border border-white/8 p-6 h-[240px] flex items-center justify-center">
+                <div className="text-text-muted text-sm animate-pulse">Loading radar...</div>
+            </div>
+        </div>
+    );
+}
+
+// ─── User data type ─────────────────────────────────────────────
+interface UserData {
+    name: string;
+    xp: number;
+    level: number;
+    streak: number;
+    totalAttempts: number;
+    averageScore: number;
+    badges: { id: string; name: string; description: string; icon: string; color: string; earnedAt: string }[];
+}
+
+const DEFAULT_USER: UserData = {
+    name: "Student",
+    xp: 0,
+    level: 1,
+    streak: 0,
+    totalAttempts: 0,
+    averageScore: 0,
+    badges: [],
+};
 
 export default function StudentDashboard() {
-    const [userName, setUserName] = useState(student.name);
+    const [user, setUser] = useState<UserData>(DEFAULT_USER);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const storedName = localStorage.getItem("userName");
-        if (storedName) setUserName(storedName);
+        let cancelled = false;
+        async function fetchUser() {
+            try {
+                const res = await fetch("/api/auth/me");
+                if (res.ok) {
+                    const data = await res.json();
+                    if (!cancelled) setUser(data.user);
+                }
+            } catch {
+                // Fallback: use localStorage name if API fails
+                const storedName = localStorage.getItem("userName");
+                if (!cancelled && storedName) setUser(prev => ({ ...prev, name: storedName }));
+            } finally {
+                if (!cancelled) setIsLoading(false);
+            }
+        }
+        fetchUser();
+        return () => { cancelled = true; };
     }, []);
 
-    const xpToNext = 10000 - student.xp;
-    const xpPercent = (student.xp / 10000) * 100;
+    // Memoize computed values
+    const xpToNext = useMemo(() => Math.max(0, (user.level * 1000) - user.xp), [user.xp, user.level]);
+    const xpPercent = useMemo(() => {
+        const target = user.level * 1000;
+        return target > 0 ? Math.min(100, (user.xp / target) * 100) : 0;
+    }, [user.xp, user.level]);
+
+    const statCards = useMemo(() => [
+        { label: "Avg. Score", value: user.averageScore > 0 ? `${user.averageScore}%` : "—", icon: BarChart3, color: "cyan", sub: "across all rounds" },
+        { label: "Total Attempts", value: user.totalAttempts || "—", icon: Target, color: "purple", sub: "this month" },
+        { label: "Best Streak", value: user.streak > 0 ? `${user.streak} days` : "—", icon: Flame, color: "orange", sub: "personal best" },
+        { label: "Rank", value: "—", icon: Award, color: "green", sub: "global leaderboard" },
+    ], [user.averageScore, user.totalAttempts, user.streak]);
+
+    if (isLoading) return <DashboardSkeleton />;
+
+    const firstName = user.name.split(" ")[0];
 
     return (
         <div className="min-h-screen">
-            <Navbar role="student" userName={userName} />
+            <Navbar role="student" userName={user.name} />
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {/* Header */}
                 <div className="flex flex-col gap-4 mb-8 w-full items-center sm:items-start text-center sm:text-left">
                     <div>
                         <h1 className="text-2xl font-bold font-display">
-                            Hey, {userName.split(" ")[0]} 👋
+                            Hey, {firstName} 👋
                         </h1>
-                        <p className="text-text-secondary text-sm mt-0.5 mb-4">Keep going — you're on a {student.streak}-day streak! 🔥</p>
+                        <p className="text-text-secondary text-sm mt-0.5 mb-4">
+                            {user.streak > 0
+                                ? `Keep going — you're on a ${user.streak}-day streak! 🔥`
+                                : "Start practicing to build your streak! 🚀"}
+                        </p>
                         <Link href="/student/practice" className="inline-block w-full sm:w-auto">
                             <Button variant="primary" size="md" className="w-full sm:w-auto min-w-[160px] justify-center" leftIcon={<Play className="w-4 h-4" />}>
                                 Start Practice
@@ -91,16 +154,16 @@ export default function StudentDashboard() {
                         <div className="flex items-center gap-4">
                             <div className="relative">
                                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-neon-purple to-neon-cyan flex items-center justify-center shadow-neon-purple">
-                                    <span className="text-2xl font-bold text-background font-display">{student.level}</span>
+                                    <span className="text-2xl font-bold text-background font-display">{user.level}</span>
                                 </div>
                                 <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-background border-2 border-neon-purple flex items-center justify-center">
                                     <Star className="w-2.5 h-2.5 text-neon-purple fill-neon-purple" />
                                 </div>
                             </div>
                             <div>
-                                <div className="text-sm text-text-muted">Level {student.level} • Code Wizard</div>
-                                <div className="text-xl font-bold font-display gradient-text-cyan">{student.xp.toLocaleString()} XP</div>
-                                <div className="text-xs text-text-muted">{xpToNext.toLocaleString()} XP to Level {student.level + 1}</div>
+                                <div className="text-sm text-text-muted">Level {user.level} • {user.level >= 10 ? "Code Wizard" : user.level >= 5 ? "Code Explorer" : "Beginner"}</div>
+                                <div className="text-xl font-bold font-display gradient-text-cyan">{user.xp.toLocaleString()} XP</div>
+                                <div className="text-xs text-text-muted">{xpToNext.toLocaleString()} XP to Level {user.level + 1}</div>
                             </div>
                         </div>
                         <div className="flex-1 sm:max-w-xs">
@@ -113,17 +176,17 @@ export default function StudentDashboard() {
                             <div className="flex items-center gap-4 mt-3 text-sm">
                                 <div className="flex items-center gap-1.5">
                                     <Flame className="w-4 h-4 text-orange-400" />
-                                    <span className="font-semibold text-orange-400">{student.streak}</span>
+                                    <span className="font-semibold text-orange-400">{user.streak}</span>
                                     <span className="text-text-muted text-xs">day streak</span>
                                 </div>
                                 <div className="flex items-center gap-1.5">
                                     <Target className="w-4 h-4 text-neon-green" />
-                                    <span className="font-semibold text-neon-green">{student.totalAttempts}</span>
+                                    <span className="font-semibold text-neon-green">{user.totalAttempts}</span>
                                     <span className="text-text-muted text-xs">attempts</span>
                                 </div>
                                 <div className="flex items-center gap-1.5">
                                     <Award className="w-4 h-4 text-yellow-400" />
-                                    <span className="font-semibold text-yellow-400">{student.badges.length}</span>
+                                    <span className="font-semibold text-yellow-400">{user.badges.length}</span>
                                     <span className="text-text-muted text-xs">badges</span>
                                 </div>
                             </div>
@@ -133,12 +196,7 @@ export default function StudentDashboard() {
 
                 {/* Quick Stats */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    {[
-                        { label: "Avg. Score", value: `${student.averageScore}%`, icon: BarChart3, color: "cyan", sub: "across all rounds" },
-                        { label: "Total Attempts", value: student.totalAttempts, icon: Target, color: "purple", sub: "this month" },
-                        { label: "Best Streak", value: "12 days", icon: Flame, color: "orange", sub: "personal best" },
-                        { label: "Rank", value: "#8", icon: Award, color: "green", sub: "global leaderboard" },
-                    ].map((s) => {
+                    {statCards.map((s) => {
                         const Icon = s.icon;
                         return (
                             <div key={s.label} className="glass rounded-2xl border border-white/8 p-4 stat-card hover:border-white/15 transition-all">
@@ -153,82 +211,12 @@ export default function StudentDashboard() {
                     })}
                 </div>
 
-                <div className="grid lg:grid-cols-3 gap-6 mb-6">
-                    {/* Weekly Progress Chart */}
-                    <div className="lg:col-span-2 glass rounded-2xl border border-white/8 p-6">
-                        <div className="flex items-center justify-between mb-5">
-                            <div>
-                                <h2 className="font-semibold text-text-primary">Weekly Performance</h2>
-                                <p className="text-xs text-text-muted mt-0.5">Score trend this week</p>
-                            </div>
-                            <Badge variant="cyan">Last 7 days</Badge>
-                        </div>
-                        <ResponsiveContainer width="100%" height={160}>
-                            <AreaChart data={weeklyProgress}>
-                                <defs>
-                                    <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3} />
-                                        <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                                <XAxis dataKey="day" tick={{ fill: "#475569", fontSize: 11 }} axisLine={false} tickLine={false} />
-                                <YAxis domain={[50, 100]} tick={{ fill: "#475569", fontSize: 11 }} axisLine={false} tickLine={false} />
-                                <Tooltip
-                                    contentStyle={{ background: "#0a0a20", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", fontSize: "12px" }}
-                                    labelStyle={{ color: "#94a3b8" }}
-                                />
-                                <Area type="monotone" dataKey="score" stroke="#a855f7" strokeWidth={2} fill="url(#scoreGrad)" />
-                            </AreaChart>
-                        </ResponsiveContainer>
-                    </div>
+                {/* Charts — lazy loaded */}
+                <Suspense fallback={<ChartSkeleton />}>
+                    <LazyCharts averageScore={user.averageScore} />
+                </Suspense>
 
-                    {/* Skill Radar */}
-                    <div className="glass rounded-2xl border border-white/8 p-6">
-                        <h2 className="font-semibold text-text-primary mb-1">Skill Radar</h2>
-                        <p className="text-xs text-text-muted mb-4">Your score by category</p>
-                        <ResponsiveContainer width="100%" height={180}>
-                            <RadarChart data={radarData} margin={{ top: 0, right: 20, bottom: 0, left: 20 }}>
-                                <PolarGrid stroke="rgba(255,255,255,0.08)" />
-                                <PolarAngleAxis dataKey="subject" tick={{ fill: "#475569", fontSize: 10 }} />
-                                <Radar name="Score" dataKey="score" stroke="#00f5ff" fill="#00f5ff" fillOpacity={0.15} strokeWidth={2} />
-                            </RadarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-
-                {/* Weakness Heatmap */}
-                <div className="glass rounded-2xl border border-white/8 p-6 mb-6">
-                    <div className="flex items-center justify-between mb-5">
-                        <div>
-                            <h2 className="font-semibold text-text-primary">Skill Heatmap</h2>
-                            <p className="text-xs text-text-muted mt-0.5">Your topic-level performance — focus on the red zones</p>
-                        </div>
-                        <div className="hidden sm:flex items-center gap-3 text-xs text-text-muted">
-                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500/30 border border-red-500/40" />Weak</span>
-                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-yellow-500/30 border border-yellow-500/40" />Average</span>
-                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-neon-cyan/40 border border-neon-cyan/50" />Good</span>
-                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-neon-green/80 border border-neon-green" />Strong</span>
-                        </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                        {heatmapTopics.map((item) => (
-                            <div
-                                key={item.topic}
-                                className={cn(
-                                    "px-3 py-2 rounded-lg border text-xs font-medium cursor-pointer hover:scale-105 transition-transform",
-                                    getHeatColor(item.score)
-                                )}
-                                title={`${item.topic}: ${item.score}%`}
-                            >
-                                <div className="font-semibold">{item.topic}</div>
-                                <div className="opacity-80">{item.score}%</div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Recommended Practice */}
+                {/* Recommended Practice — uses system templates (not user data) */}
                 <div className="glass rounded-2xl border border-white/8 p-6">
                     <div className="flex items-center justify-between mb-5">
                         <div>

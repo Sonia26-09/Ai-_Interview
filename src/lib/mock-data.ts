@@ -456,6 +456,7 @@ export const mockCodingQuestions: Question[] = [
         id: "cq1",
         type: "coding",
         title: "Two Sum",
+        functionName: "twoSum",
         description: `Given an array of integers \`nums\` and an integer \`target\`, return indices of the two numbers such that they add up to \`target\`.
 
 You may assume that each input would have exactly one solution, and you may not use the same element twice.
@@ -474,38 +475,36 @@ Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].
         difficulty: "Easy",
         techStack: ["DSA", "JavaScript"],
         starterCode: {
-            javascript: `/**
- * @param {number[]} nums
- * @param {number} target
- * @return {number[]}
- */
-function twoSum(nums, target) {
-  // Write your solution here
-  
-};`,
-            python: `class Solution:
-    def twoSum(self, nums: List[int], target: int) -> List[int]:
-        # Write your solution here
-        pass`,
-            c: `/**
- * Note: The returned array must be malloced, assume caller calls free().
- */
-int* twoSum(int* nums, int numsSize, int target, int* returnSize) {
-    // Write your solution here
-    
-}`,
-            cpp: `class Solution {
-public:
-    vector<int> twoSum(vector<int>& nums, int target) {
-        // Write your solution here
-        
-    }
-};`
+            javascript: `/**\n * @param {number[]} nums\n * @param {number} target\n * @return {number[]}\n */\nfunction twoSum(nums, target) {\n  // Write your solution here\n  \n};`,
+            python: `class Solution:\n    def twoSum(self, nums: List[int], target: int) -> List[int]:\n        # Write your solution here\n        pass`,
+            c: `/**\n * Note: The returned array must be malloced, assume caller calls free().\n */\nint* twoSum(int* nums, int numsSize, int target, int* returnSize) {\n    // Write your solution here\n    \n}`,
+            cpp: `class Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        // Write your solution here\n        \n    }\n};`
         },
         testCases: [
-            { id: "tc1", input: "[2,7,11,15], 9", expectedOutput: "[0,1]", isHidden: false, description: "Basic case" },
-            { id: "tc2", input: "[3,2,4], 6", expectedOutput: "[1,2]", isHidden: false, description: "Different indices" },
-            { id: "tc3", input: "[3,3], 6", expectedOutput: "[0,1]", isHidden: true, description: "Hidden: duplicate values" },
+            {
+                id: "tc1", input: "[2,7,11,15], 9", expectedOutput: "[0,1]", isHidden: false, description: "Basic case",
+                inputCpp: "vector<int> nums = {2,7,11,15};\nint target = 9;",
+                inputJava: "int[] nums = {2,7,11,15};\nint target = 9;",
+                inputPython: "nums = [2,7,11,15]\n        target = 9",
+                inputJs: "const nums = [2,7,11,15];\nconst target = 9;",
+                argsCpp: "nums, target", argsJava: "nums, target", argsPython: "nums, target", argsJs: "nums, target",
+            },
+            {
+                id: "tc2", input: "[3,2,4], 6", expectedOutput: "[1,2]", isHidden: false, description: "Different indices",
+                inputCpp: "vector<int> nums = {3,2,4};\nint target = 6;",
+                inputJava: "int[] nums = {3,2,4};\nint target = 6;",
+                inputPython: "nums = [3,2,4]\n        target = 6",
+                inputJs: "const nums = [3,2,4];\nconst target = 6;",
+                argsCpp: "nums, target", argsJava: "nums, target", argsPython: "nums, target", argsJs: "nums, target",
+            },
+            {
+                id: "tc3", input: "[3,3], 6", expectedOutput: "[0,1]", isHidden: true, description: "Hidden: duplicate values",
+                inputCpp: "vector<int> nums = {3,3};\nint target = 6;",
+                inputJava: "int[] nums = {3,3};\nint target = 6;",
+                inputPython: "nums = [3,3]\n        target = 6",
+                inputJs: "const nums = [3,3];\nconst target = 6;",
+                argsCpp: "nums, target", argsJava: "nums, target", argsPython: "nums, target", argsJs: "nums, target",
+            },
         ],
         aiHints: [
             "Consider using a hash map to store visited elements",
@@ -519,6 +518,7 @@ public:
         id: "cq2",
         type: "coding",
         title: "Valid Parentheses",
+        functionName: "isValid",
         description: `Given a string \`s\` containing just the characters \`'\('\`, \`'\)'\`, \`'\{'\`, \`'\}'\`, \`'\['\` and \`'\]'\`, determine if the input string is valid.
 
 An input string is valid if:
@@ -537,34 +537,36 @@ Output: false
         difficulty: "Easy",
         techStack: ["DSA"],
         starterCode: {
-            javascript: `/**
- * @param {string} s
- * @return {boolean}
- */
-function isValid(s) {
-  // Write your solution here
-  
-};`,
-            python: `class Solution:
-    def isValid(self, s: str) -> bool:
-        # Write your solution here
-        pass`,
-            c: `bool isValid(char * s) {
-    // Write your solution here
-    
-}`,
-            cpp: `class Solution {
-public:
-    bool isValid(string s) {
-        // Write your solution here
-        
-    }
-};`
+            javascript: `/**\n * @param {string} s\n * @return {boolean}\n */\nfunction isValid(s) {\n  // Write your solution here\n  \n};`,
+            python: `class Solution:\n    def isValid(self, s: str) -> bool:\n        # Write your solution here\n        pass`,
+            c: `bool isValid(char * s) {\n    // Write your solution here\n    \n}`,
+            cpp: `class Solution {\npublic:\n    bool isValid(string s) {\n        // Write your solution here\n        \n    }\n};`
         },
         testCases: [
-            { id: "tc1", input: '"()[]{}"', expectedOutput: "true", isHidden: false },
-            { id: "tc2", input: '"(]"', expectedOutput: "false", isHidden: false },
-            { id: "tc3", input: '"([)]"', expectedOutput: "false", isHidden: true },
+            {
+                id: "tc1", input: '"()[]{}"', expectedOutput: "true", isHidden: false,
+                inputCpp: 'string s = "()[]{}";',
+                inputJava: 'String s = "()[]{}";',
+                inputPython: 's = "()[]{}"',
+                inputJs: 'const s = "()[]{}";',
+                argsCpp: "s", argsJava: "s", argsPython: "s", argsJs: "s",
+            },
+            {
+                id: "tc2", input: '"(]"', expectedOutput: "false", isHidden: false,
+                inputCpp: 'string s = "(]";',
+                inputJava: 'String s = "(]";',
+                inputPython: 's = "(]"',
+                inputJs: 'const s = "(]";',
+                argsCpp: "s", argsJava: "s", argsPython: "s", argsJs: "s",
+            },
+            {
+                id: "tc3", input: '"([)]"', expectedOutput: "false", isHidden: true,
+                inputCpp: 'string s = "([)]";',
+                inputJava: 'String s = "([)]";',
+                inputPython: 's = "([)]"',
+                inputJs: 'const s = "([)]";',
+                argsCpp: "s", argsJava: "s", argsPython: "s", argsJs: "s",
+            },
         ],
         aiHints: ["Stack is perfect for matching brackets", "Push open brackets, pop when closing"],
         tags: ["stack", "strings"],

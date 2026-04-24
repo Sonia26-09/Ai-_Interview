@@ -4,7 +4,7 @@ import { useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "react-hot-toast";
-import { Brain, Mail, Lock, User, Building2, GraduationCap, ArrowRight, Check } from "lucide-react";
+import { Brain, Mail, Lock, User, Building2, GraduationCap, ArrowRight, Check, ShieldCheck } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
@@ -27,9 +27,14 @@ function SignupContent() {
     const [step, setStep] = useState(1);
     const [selectedStack, setSelectedStack] = useState<TechStack[]>([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [form, setForm] = useState({ name: "", email: "", password: "", company: "" });
+    const [form, setForm] = useState({ name: "", email: "", password: "" });
     const [emailError, setEmailError] = useState("");
     const [passwordError, setPasswordError] = useState("");
+
+    // OTP state
+    const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+    const [otpToken, setOtpToken] = useState("");
+    const [otpError, setOtpError] = useState("");
 
     const toggleStack = (stack: TechStack) => {
         setSelectedStack((prev) =>
@@ -52,48 +57,7 @@ function SignupContent() {
         }
     };
 
-    const completeSignup = async () => {
-        setIsLoading(true);
-        try {
-            // Normalize email before sending — lowercase + trim
-            const normalizedEmail = form.email.toLowerCase().trim();
-
-            const res = await fetch("/api/auth/signup", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    name: form.name,
-                    email: normalizedEmail, // Always send normalized email
-                    password: form.password,
-                    role,
-                    company: form.company,
-                    techStack: selectedStack,
-                }),
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                if (data.error?.toLowerCase().includes("user already exists") || data.error?.toLowerCase().includes("email")) {
-                    setStep(1);
-                    setEmailError("Email is already registered");
-                } else {
-                    toast.error(data.error || "Signup failed");
-                }
-                setIsLoading(false);
-                return;
-            }
-
-            toast.success("Account created successfully!");
-            localStorage.setItem("userName", data.user.name);
-            window.location.href = role === "recruiter" ? "/recruiter/dashboard" : "/student/dashboard";
-        } catch (error) {
-            console.error("Signup error:", error);
-            toast.error("Something went wrong. Please try again.");
-            setIsLoading(false);
-        }
-    };
-
+    // Step 1 → Step 2 (or Step 1 → TechStack for students)
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setEmailError("");
@@ -114,10 +78,138 @@ function SignupContent() {
         if (!isValid) return;
 
         if (step === 1 && role === "student") { 
-            setStep(2); 
+            setStep(2); // Go to tech stack selection
             return; 
         }
-        await completeSignup();
+
+        // Recruiter goes directly to OTP
+        await sendOTP();
+    };
+
+    // Send OTP email
+    const sendOTP = async () => {
+        setIsLoading(true);
+        try {
+            const normalizedEmail = form.email.toLowerCase().trim();
+
+            const res = await fetch("/api/auth/send-otp", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: form.name,
+                    email: normalizedEmail,
+                    password: form.password,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                if (data.error?.toLowerCase().includes("already exists") || data.error?.toLowerCase().includes("email")) {
+                    setStep(1);
+                    setEmailError(data.error);
+                } else {
+                    toast.error(data.error || "Failed to send OTP");
+                }
+                return;
+            }
+
+            setOtpToken(data.otpToken);
+            setStep(3); // Go to OTP verification step
+            toast.success("OTP sent to your email!");
+        } catch (error) {
+            console.error("Send OTP error:", error);
+            toast.error("Something went wrong. Please try again.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Verify OTP and create account
+    const handleVerifyOTP = async () => {
+        setOtpError("");
+        const otpString = otp.join("");
+        if (otpString.length !== 6) {
+            setOtpError("Please enter the complete 6-digit OTP");
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const normalizedEmail = form.email.toLowerCase().trim();
+
+            const res = await fetch("/api/auth/verify-otp", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: form.name,
+                    email: normalizedEmail,
+                    password: form.password,
+                    otp: otpString,
+                    otpToken,
+                    role,
+                    company: role === "recruiter" ? (form as any).company : undefined,
+                    techStack: role === "student" ? selectedStack : undefined,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                setOtpError(data.error || "Verification failed");
+                return;
+            }
+
+            setStep(4); // Success step
+            toast.success("Account created successfully!");
+            localStorage.setItem("userName", data.user.name);
+            
+            setTimeout(() => {
+                window.location.href = role === "recruiter" ? "/recruiter/dashboard" : "/student/dashboard";
+            }, 1500);
+        } catch (error) {
+            console.error("Verify OTP error:", error);
+            toast.error("Verification failed. Please try again.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // OTP input handlers
+    const handleOtpChange = (index: number, value: string) => {
+        if (!/^\d*$/.test(value)) return; // Only digits
+        if (value.length > 1) return;
+        const newOtp = [...otp];
+        newOtp[index] = value;
+        setOtp(newOtp);
+        setOtpError("");
+        if (value && index < 5) {
+            document.getElementById(`otp-${index + 1}`)?.focus();
+        }
+    };
+
+    const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
+        if (e.key === "Backspace" && !otp[index] && index > 0) {
+            document.getElementById(`otp-${index - 1}`)?.focus();
+        }
+    };
+
+    const handleOtpPaste = (e: React.ClipboardEvent) => {
+        e.preventDefault();
+        const pastedData = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+        if (pastedData.length === 6) {
+            setOtp(pastedData.split(""));
+            document.getElementById("otp-5")?.focus();
+        }
+    };
+
+    // Total steps indicator
+    const totalSteps = role === "student" ? 4 : 3;
+    const getDisplayStep = () => {
+        if (role === "recruiter") {
+            return step === 1 ? 1 : step === 3 ? 2 : 3;
+        }
+        return step;
     };
 
     return (
@@ -133,19 +225,21 @@ function SignupContent() {
                 <div className="glass rounded-2xl border border-white/10 p-8 shadow-glass">
                     <h1 className="text-2xl font-bold font-display mb-1">Create your account</h1>
                     <p className="text-text-secondary text-sm mb-6">
-                        {step === 1 ? "Choose your role and fill in your details" : "Select your tech stack to personalize your experience"}
+                        {step === 1 && "Choose your role and fill in your details"}
+                        {step === 2 && "Select your tech stack to personalize your experience"}
+                        {step === 3 && `Enter the OTP sent to ${form.email}`}
+                        {step === 4 && "You're all set!"}
                     </p>
 
                     {/* Progress dots */}
-                    {role === "student" && (
-                        <div className="flex items-center gap-2 mb-6">
-                            {[1, 2].map((s) => (
-                                <div key={s} className={`h-1 flex-1 rounded-full transition-all duration-300 ${s <= step ? "bg-gradient-to-r from-neon-cyan to-neon-purple" : "bg-white/10"}`} />
-                            ))}
-                        </div>
-                    )}
+                    <div className="flex items-center gap-2 mb-6">
+                        {Array.from({ length: totalSteps }, (_, i) => (
+                            <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${i + 1 <= getDisplayStep() ? "bg-gradient-to-r from-neon-cyan to-neon-purple" : "bg-white/10"}`} />
+                        ))}
+                    </div>
 
-                    {step === 1 ? (
+                    {/* Step 1: Credentials */}
+                    {step === 1 && (
                         <form onSubmit={handleSubmit} className="space-y-4">
                             {/* Role Toggle */}
                             <div className="flex gap-2 p-1 glass rounded-xl border border-white/10">
@@ -163,21 +257,20 @@ function SignupContent() {
                                 value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
                             <Input label="Email" type="email" placeholder="you@example.com" leftIcon={<Mail className="w-4 h-4" />}
                                 value={form.email} onChange={handleEmailChange} error={emailError} required />
-                            {role === "recruiter" && (
-                                <Input label="Company Name" placeholder="Your company" leftIcon={<Building2 className="w-4 h-4" />}
-                                    value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} required />
-                            )}
                             <Input label="Password" type="password" placeholder="••••••••" leftIcon={<Lock className="w-4 h-4" />}
                                 value={form.password} onChange={(e) => { setForm({ ...form, password: e.target.value }); setPasswordError(""); }} error={passwordError} required
                                 helperText="Minimum 8 characters" />
 
                             <Button type="submit" variant="primary" size="lg" className="w-full mt-2"
-                                rightIcon={role === "student" ? <ArrowRight className="w-4 h-4" /> : undefined}
+                                rightIcon={<ArrowRight className="w-4 h-4" />}
                                 isLoading={isLoading}>
-                                {role === "student" ? "Continue" : "Create Account"}
+                                {role === "student" ? "Continue" : "Send OTP →"}
                             </Button>
                         </form>
-                    ) : (
+                    )}
+
+                    {/* Step 2: Tech Stack (students only) */}
+                    {step === 2 && (
                         <div className="space-y-4">
                             <p className="text-sm text-text-secondary">Select all that apply — we'll personalize your experience</p>
                             <div className="flex flex-wrap gap-2">
@@ -196,11 +289,80 @@ function SignupContent() {
                             <div className="flex gap-3 mt-2">
                                 <Button variant="secondary" size="lg" className="flex-1" onClick={() => setStep(1)}>Back</Button>
                                 <Button variant="primary" size="lg" className="flex-1" isLoading={isLoading}
-                                    onClick={completeSignup}>
-                                    Get Started 🚀
+                                    onClick={sendOTP}>
+                                    Send OTP →
                                 </Button>
                             </div>
                             <p className="text-xs text-text-muted text-center">You can always update this later in your profile</p>
+                        </div>
+                    )}
+
+                    {/* Step 3: OTP Verification */}
+                    {step === 3 && (
+                        <div className="space-y-5">
+                            <div className="p-4 rounded-xl border border-neon-purple/30 bg-neon-purple/5 text-center">
+                                <ShieldCheck className="w-6 h-6 text-neon-purple mx-auto mb-2" />
+                                <h3 className="text-sm font-medium text-text-primary">Verify your email</h3>
+                                <p className="text-xs text-text-muted mt-1">
+                                    We've sent a 6-digit code to <strong className="text-neon-cyan">{form.email}</strong>
+                                </p>
+                            </div>
+
+                            {otpError && (
+                                <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 text-sm text-center">
+                                    {otpError}
+                                </div>
+                            )}
+
+                            <div className="flex gap-2.5 justify-center" onPaste={handleOtpPaste}>
+                                {otp.map((digit, i) => (
+                                    <input
+                                        key={i}
+                                        id={`otp-${i}`}
+                                        type="text"
+                                        inputMode="numeric"
+                                        maxLength={1}
+                                        value={digit}
+                                        onChange={e => handleOtpChange(i, e.target.value)}
+                                        onKeyDown={e => handleOtpKeyDown(i, e)}
+                                        className={`w-12 h-14 text-center text-xl font-bold bg-surface-2 rounded-xl border-2 text-text-primary outline-none transition-all duration-200 focus:ring-2 focus:ring-neon-purple/30 ${
+                                            digit ? "border-neon-purple/50" : "border-white/10"
+                                        }`}
+                                    />
+                                ))}
+                            </div>
+
+                            <Button variant="primary" size="lg" className="w-full"
+                                isLoading={isLoading}
+                                onClick={handleVerifyOTP}
+                                rightIcon={!isLoading && <ArrowRight className="w-4 h-4" />}>
+                                Verify & Create Account
+                            </Button>
+
+                            <div className="flex justify-between items-center">
+                                <button
+                                    onClick={() => { setStep(role === "student" ? 2 : 1); setOtp(["","","","","",""]); setOtpError(""); }}
+                                    className="text-xs text-text-muted hover:text-text-primary transition-colors">
+                                    ← Go back
+                                </button>
+                                <button
+                                    onClick={sendOTP}
+                                    disabled={isLoading}
+                                    className="text-xs text-neon-cyan hover:text-neon-cyan/80 transition-colors">
+                                    Resend OTP
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Step 4: Success */}
+                    {step === 4 && (
+                        <div className="text-center py-6">
+                            <div className="w-16 h-16 rounded-full bg-neon-green/20 border-2 border-neon-green/40 flex items-center justify-center mx-auto mb-4">
+                                <Check className="w-8 h-8 text-neon-green" />
+                            </div>
+                            <h3 className="text-lg font-bold text-text-primary mb-1">Account Created!</h3>
+                            <p className="text-sm text-text-muted">Redirecting to your dashboard...</p>
                         </div>
                     )}
 

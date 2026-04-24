@@ -220,7 +220,7 @@ function LoginPageContent() {
                             required
                         />
                         <div className="flex justify-end">
-                            <a href="#" className="text-xs text-neon-cyan hover:text-neon-cyan/80 transition-colors">Forgot password?</a>
+                            <Link href="/auth/forgot-password" className="text-xs text-neon-cyan hover:text-neon-cyan/80 transition-colors">Forgot password?</Link>
                         </div>
                         <Button
                             type="submit"

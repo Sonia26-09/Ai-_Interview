@@ -19,6 +19,7 @@
     "i18next": "^26.0.4",
     "i18next-browser-languagedetector": "^8.2.1",
     "jose": "^6.2.2",
+    "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.400.0",
     "mongodb-memory-server": "^11.0.1",
     "mongoose": "^9.4.1",
