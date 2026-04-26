@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
     Brain, Send, ArrowRight, BarChart3,
-    ThumbsUp, Clock, Sparkles, CheckCircle2, MessageSquare
+    ThumbsUp, Clock, Sparkles, CheckCircle2, MessageSquare,
+    LogOut, AlertTriangle
 } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
@@ -67,6 +68,7 @@ export default function HRRoundPage() {
     const [roundComplete, setRoundComplete] = useState(false);
     const [answerFeedbacks, setAnswerFeedbacks] = useState<HRAnswerFeedback[]>([]);
     const [showFeedbackSummary, setShowFeedbackSummary] = useState(false);
+    const [showEndConfirm, setShowEndConfirm] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -171,6 +173,23 @@ export default function HRRoundPage() {
         }
     };
 
+    const handleEndInterview = () => {
+        setShowEndConfirm(false);
+        setRoundComplete(true);
+        const allFeedbacks = [...answerFeedbacks];
+        // If user hasn't answered anything yet, create a minimal result
+        const hrResult = buildHRResult(allFeedbacks, Math.round(liveConfidence));
+        saveToStorage(STORAGE_KEYS.hr, hrResult);
+        setShowFeedbackSummary(allFeedbacks.length > 0);
+
+        // Add a closing message from the AI
+        setMessages(prev => [...prev, {
+            role: "ai" as const,
+            content: "Thank you for your time. The interview has been concluded. You can now view your detailed AI report.",
+            timestamp: new Date(),
+        }]);
+    };
+
     const getScoreColor = (s: number) =>
         s >= 80 ? "text-neon-green" : s >= 60 ? "text-neon-cyan" : s >= 40 ? "text-yellow-400" : "text-red-400";
 
@@ -179,6 +198,34 @@ export default function HRRoundPage() {
 
     return (
         <div className="min-h-screen">
+            {/* End Interview Confirmation Modal */}
+            {showEndConfirm && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="glass rounded-2xl border border-white/10 p-6 max-w-md mx-4 animate-scale-up">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center justify-center">
+                                <AlertTriangle className="w-5 h-5 text-red-400" />
+                            </div>
+                            <div>
+                                <h3 className="font-semibold text-text-primary">End Interview?</h3>
+                                <p className="text-xs text-text-muted">This action cannot be undone</p>
+                            </div>
+                        </div>
+                        <p className="text-sm text-text-secondary mb-6 leading-relaxed">
+                            Are you sure you want to end the HR round? Your responses so far will be evaluated and included in the final report.
+                        </p>
+                        <div className="flex gap-3">
+                            <Button variant="secondary" size="md" className="flex-1" onClick={() => setShowEndConfirm(false)}>
+                                Continue Interview
+                            </Button>
+                            <Button variant="danger" size="md" className="flex-1" onClick={handleEndInterview}
+                                leftIcon={<LogOut className="w-4 h-4" />}>
+                                End Interview
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <Navbar role="student" userName="Arjun Mehta" />
             <div className="max-w-6xl mx-auto px-4 py-6">
                 <div className="flex flex-col lg:flex-row gap-5">
@@ -197,12 +244,18 @@ export default function HRRoundPage() {
                                     Live Session
                                 </div>
                             </div>
-                            <div className="ml-auto flex items-center gap-2">
+                            <div className="ml-auto flex items-center gap-3">
                                 <Badge variant="purple" size="sm">HR Round</Badge>
                                 <div className="flex items-center gap-1.5 text-xs text-text-muted">
                                     <Clock className="w-3.5 h-3.5" />
                                     Exchange {currentQ + 1}
                                 </div>
+                                {!roundComplete && (
+                                    <Button variant="danger" size="sm" onClick={() => setShowEndConfirm(true)}
+                                        leftIcon={<LogOut className="w-3.5 h-3.5" />}>
+                                        End Interview
+                                    </Button>
+                                )}
                             </div>
                         </div>
 
@@ -254,7 +307,7 @@ export default function HRRoundPage() {
 
                         {/* Input */}
                         {!roundComplete ? (
-                            <div className="p-4 border-t border-white/8">
+                            <div className="p-4 border-t border-white/8 space-y-3">
                                 <div className="flex gap-2">
                                     <textarea
                                         value={input}
@@ -265,11 +318,18 @@ export default function HRRoundPage() {
                                         className="flex-1 bg-surface-2 border border-border rounded-xl text-sm text-text-primary placeholder:text-text-muted px-4 py-2.5 focus:outline-none focus:border-neon-purple/50 focus:ring-2 focus:ring-neon-purple/10 resize-none"
                                         disabled={isTyping}
                                     />
-                                    <Button variant="neon-purple" size="md" onClick={handleSend}
-                                        disabled={!input.trim() || isTyping}
-                                        leftIcon={<Send className="w-4 h-4" />}>
-                                        Send
-                                    </Button>
+                                    <div className="flex flex-col gap-2">
+                                        <Button variant="neon-purple" size="md" onClick={handleSend}
+                                            disabled={!input.trim() || isTyping}
+                                            leftIcon={<Send className="w-4 h-4" />}>
+                                            Send
+                                        </Button>
+                                        <Button variant="danger" size="md" onClick={() => setShowEndConfirm(true)}
+                                            disabled={isTyping}
+                                            leftIcon={<LogOut className="w-4 h-4" />}>
+                                            End
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
                         ) : (
