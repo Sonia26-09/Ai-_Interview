@@ -148,13 +148,13 @@ export default function HRRoundPage() {
         } catch (error) {
             console.error("Failed to fetch HR response:", error);
             
-            // Graceful fallback to maintain interview continuity
+            // Graceful fallback — maintain interview pressure, never apologize
             const fallbackQuestions = [
-                "I’m sorry for the brief interruption. Let’s continue with the interview. Could you elaborate more on what you just shared?",
-                "My apologies, we had a brief connection drop. What challenges did you face in that situation?",
-                "I apologize for the delay. Which part of your work are you most proud of and why?",
-                "Let's move forward. How did you ensure quality and performance in your recent project?",
-                "Thanks for sharing. Where do you see your career heading in the next few years?"
+                "I didn't quite catch that. Let me ask again — can you tell me about a specific project you've worked on and what your role was?",
+                "Let's focus. Walk me through a real challenge you faced at work or in a project — what happened and what did you do?",
+                "I need you to be more specific. Tell me about a time you had to deal with a difficult teammate or a disagreement. How did you handle it?",
+                "Let's try this differently. What's one thing you've built or accomplished that you're genuinely proud of? Walk me through it.",
+                "I want to understand your thinking. Tell me about a decision you made that didn't go well — what happened and what did you learn?"
             ];
             
             // Select a fallback question, ensuring some variety based on the question index

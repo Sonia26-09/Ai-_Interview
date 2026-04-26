@@ -357,7 +357,7 @@ export function generateCodingFeedback(
 export function buildCodingResult(feedbacks: CodingQuestionFeedback[]): CodingResult {
     const overallScore =
         feedbacks.length > 0
-            ? Math.round(feedbacks.reduce((a, f) => a + f.score, 0) / feedbacks.length)
+            ? feedbacks.reduce((a, f) => a + f.score, 0)
             : 0;
     return { feedbacks, overallScore };
 }

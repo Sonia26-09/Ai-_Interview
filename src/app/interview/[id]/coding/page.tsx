@@ -277,7 +277,7 @@ export default function CodingRoundPage() {
     };
 
     const codingScore = allFeedbacks.length > 0
-        ? Math.round(allFeedbacks.reduce((a, f) => a + f.score, 0) / allFeedbacks.length)
+        ? allFeedbacks.reduce((a, f) => a + f.score, 0)
         : 0;
 
     if (submitted) {
@@ -294,7 +294,7 @@ export default function CodingRoundPage() {
                     {/* Overall coding score */}
                     <div className="inline-flex flex-col items-center px-8 py-4 mb-6 rounded-2xl bg-gradient-to-br from-neon-green/10 to-neon-cyan/10 border border-neon-green/30">
                         <div className="text-5xl font-bold text-neon-green font-display">{codingScore}</div>
-                        <div className="text-xs text-text-muted mt-1 uppercase tracking-wider">Overall Coding Score / 100</div>
+                        <div className="text-xs text-text-muted mt-1 uppercase tracking-wider">Overall Coding Score / {mockCodingQuestions.length * 100}</div>
                         <div className="flex gap-4 mt-3">
                             {allFeedbacks.map((f, i) => (
                                 <div key={f.questionId} className="text-center">
