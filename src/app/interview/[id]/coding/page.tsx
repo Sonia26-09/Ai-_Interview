@@ -162,16 +162,81 @@ export default function CodingRoundPage() {
 
         setIsSubmitting(true);
         try {
-            const res = await fetch("/api/evaluate", {
+            // ── Use the REAL compiler (/api/execute) for test evaluation ──
+            // This is the same endpoint the Run button uses — it actually compiles
+            // and runs the code via OnlineCompiler.io, giving reliable results.
+            // The old /api/evaluate used Gemini to *simulate* C++ execution which
+            // was unreliable and incorrectly failed correct code.
+            const res = await fetch("/api/execute", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code, testCases: q.testCases || [], language })
+                body: JSON.stringify({
+                    code,
+                    language,
+                    functionName: q.functionName,
+                    testCases: q.testCases || [],
+                }),
             });
             const data = await res.json();
-            
+
             const totalTests = q.testCases?.length || 3;
-            const passed = data.passed || 0;
-            const feedback = generateCodingFeedback(q, code, passed, totalTests, false);
+
+            // ── Extract test results from real compiler output ──
+            let passed = 0;
+            let testResultsBool: boolean[] = (q.testCases || []).map(() => false);
+            let hasCompileError = data.status === 'compile_error';
+            let hasRuntimeError = data.status === 'runtime_error';
+            let errorMessage: string | null = data.compile_error || data.stderr || data.error || null;
+
+            if (data.testResults) {
+                // Real compiler returned parsed test results
+                passed = data.testResults.passed || 0;
+                testResultsBool = data.testResults.results.map((r: any) => r.passed);
+            } else if (data.status === 'success' && !data.compile_error && !data.stderr) {
+                // No test results parsed but execution succeeded — fallback
+                // This shouldn't happen in LeetCode mode, but handle gracefully
+                passed = 0;
+            }
+
+            // ── Call the AI reviewer for rich feedback ──
+            let feedback: CodingQuestionFeedback;
+            try {
+                const reviewRes = await fetch("/api/review", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        code,
+                        language,
+                        problemTitle: q.title,
+                        problemDescription: q.description,
+                        testsPassed: passed,
+                        testsTotal: totalTests,
+                        hasCompileError,
+                        hasRuntimeError,
+                        errorMessage,
+                    }),
+                });
+                const reviewData = await reviewRes.json();
+                if (reviewRes.ok && reviewData.score !== undefined) {
+                    feedback = {
+                        questionId: q.id,
+                        code,
+                        score: reviewData.score,
+                        timeComplexity: reviewData.timeComplexity || "Unknown",
+                        spaceComplexity: reviewData.spaceComplexity || "Unknown",
+                        whatYouDidWell: reviewData.whatYouDidWell || [],
+                        whatToImprove: reviewData.whatToImprove || [],
+                        modelApproach: reviewData.modelApproach || "",
+                        errors: reviewData.errors || [],
+                    };
+                } else {
+                    // Fallback to static feedback
+                    feedback = generateCodingFeedback(q, code, passed, totalTests, false);
+                }
+            } catch {
+                // Fallback to static feedback if review API fails
+                feedback = generateCodingFeedback(q, code, passed, totalTests, false);
+            }
 
             setAllFeedbacks([...allFeedbacks.filter(f => f.questionId !== q.id), feedback]);
             setAiFeedback(feedback);
@@ -179,11 +244,11 @@ export default function CodingRoundPage() {
             setTestResults({
                 passed,
                 total: totalTests,
-                results: data.results || (q.testCases || []).map(() => false),
+                results: testResultsBool,
                 isSubmitResult: true,
-                compileError: data.compileError,
-                runtimeError: data.runtimeError,
-                errorMessage: data.error,
+                compileError: hasCompileError,
+                runtimeError: hasRuntimeError,
+                errorMessage: errorMessage || undefined,
             });
             setActiveTab("ai");
         } catch (error) {
@@ -192,6 +257,7 @@ export default function CodingRoundPage() {
             setIsSubmitting(false);
         }
     };
+
 
     const handleNextProblem = () => {
         const nextIdx = currentQ + 1;
@@ -404,7 +470,7 @@ export default function CodingRoundPage() {
                                                 <span className="text-xs font-semibold text-neon-green uppercase tracking-wider">What You Did Well</span>
                                             </div>
                                             <div className="space-y-1.5">
-                                                {aiFeedback.didWell.map((s, i) => (
+                                                {aiFeedback.whatYouDidWell.map((s, i) => (
                                                     <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
                                                         <span className="text-neon-green mt-0.5 flex-shrink-0">✓</span>{s}
                                                     </div>
@@ -412,14 +478,14 @@ export default function CodingRoundPage() {
                                             </div>
                                         </div>
 
-                                        {/* Improve */}
+                                        {/* What to improve */}
                                         <div className="p-3 rounded-xl bg-yellow-400/5 border border-yellow-400/20">
                                             <div className="flex items-center gap-1.5 mb-2">
                                                 <TrendingUp className="w-3.5 h-3.5 text-yellow-400" />
                                                 <span className="text-xs font-semibold text-yellow-400 uppercase tracking-wider">What To Improve</span>
                                             </div>
                                             <div className="space-y-1.5">
-                                                {aiFeedback.improve.map((s, i) => (
+                                                {aiFeedback.whatToImprove.map((s, i) => (
                                                     <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
                                                         <span className="text-yellow-400 mt-0.5 flex-shrink-0">⚡</span>{s}
                                                     </div>
@@ -436,20 +502,39 @@ export default function CodingRoundPage() {
                                             <p className="text-xs text-text-secondary leading-relaxed">{aiFeedback.modelApproach}</p>
                                         </div>
 
-                                        {/* Edge Cases */}
-                                        <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/20">
-                                            <div className="flex items-center gap-1.5 mb-2">
-                                                <AlertCircle className="w-3.5 h-3.5 text-red-400" />
-                                                <span className="text-xs font-semibold text-red-400 uppercase tracking-wider">Edge Cases to Watch</span>
+                                        {/* Errors (only show if there are any) */}
+                                        {aiFeedback.errors && aiFeedback.errors.length > 0 && (
+                                            <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/20">
+                                                <div className="flex items-center gap-1.5 mb-2">
+                                                    <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                                                    <span className="text-xs font-semibold text-red-400 uppercase tracking-wider">Errors Found</span>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {aiFeedback.errors.map((e, i) => (
+                                                        <div key={i} className="text-xs text-text-secondary flex items-start gap-1.5">
+                                                            <span className="text-red-400 flex-shrink-0">•</span>{e}
+                                                        </div>
+                                                    ))}
+                                                </div>
                                             </div>
-                                            <div className="space-y-1">
-                                                {aiFeedback.edgeCases.map((ec, i) => (
-                                                    <div key={i} className="text-xs text-text-secondary flex items-start gap-1.5">
-                                                        <span className="text-red-400 flex-shrink-0">•</span>{ec}
-                                                    </div>
-                                                ))}
+                                        )}
+
+                                        {/* Edge Cases (optional — only show if present) */}
+                                        {aiFeedback.edgeCases && aiFeedback.edgeCases.length > 0 && (
+                                            <div className="p-3 rounded-xl bg-orange-500/5 border border-orange-500/20">
+                                                <div className="flex items-center gap-1.5 mb-2">
+                                                    <AlertCircle className="w-3.5 h-3.5 text-orange-400" />
+                                                    <span className="text-xs font-semibold text-orange-400 uppercase tracking-wider">Edge Cases to Watch</span>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {aiFeedback.edgeCases.map((ec, i) => (
+                                                        <div key={i} className="text-xs text-text-secondary flex items-start gap-1.5">
+                                                            <span className="text-orange-400 flex-shrink-0">•</span>{ec}
+                                                        </div>
+                                                    ))}
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
                                     </div>
                                 )}
                             </div>

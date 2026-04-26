@@ -360,11 +360,11 @@ export default function InterviewResultsPage() {
                                                         <div className="grid grid-cols-2 gap-3">
                                                             <div>
                                                                 <div className="text-xs font-semibold text-neon-green mb-1.5">✓ Did Well</div>
-                                                                {fb.didWell.map((s, j) => <div key={j} className="text-xs text-text-secondary flex gap-1.5 mb-1"><span className="text-neon-green">•</span>{s}</div>)}
+                                                                {fb.whatYouDidWell.map((s, j) => <div key={j} className="text-xs text-text-secondary flex gap-1.5 mb-1"><span className="text-neon-green">•</span>{s}</div>)}
                                                             </div>
                                                             <div>
                                                                 <div className="text-xs font-semibold text-yellow-400 mb-1.5">⚡ Improve</div>
-                                                                {fb.improve.map((s, j) => <div key={j} className="text-xs text-text-secondary flex gap-1.5 mb-1"><span className="text-yellow-400">•</span>{s}</div>)}
+                                                                {fb.whatToImprove.map((s, j) => <div key={j} className="text-xs text-text-secondary flex gap-1.5 mb-1"><span className="text-yellow-400">•</span>{s}</div>)}
                                                             </div>
                                                         </div>
                                                         <div className="p-3 rounded-lg bg-neon-purple/5 border border-neon-purple/20">

@@ -177,10 +177,11 @@ export interface CodingQuestionFeedback {
     score: number;
     timeComplexity: string;
     spaceComplexity: string;
-    didWell: string[];
-    improve: string[];
+    whatYouDidWell: string[];
+    whatToImprove: string[];
     modelApproach: string;
-    edgeCases: string[];
+    errors: string[];
+    edgeCases?: string[];
     code: string;
 }
 

@@ -126,18 +126,19 @@ function buildTwoSumFeedback(code: string, allTestsPassed: boolean) {
         return {
             timeComplexity: "O(n²)",
             spaceComplexity: "O(1)",
-            didWell: [
+            whatYouDidWell: [
                 ...(allTestsPassed ? ["Correct solution — all test cases pass ✓"] : ["Brute-force approach detected — some test cases may have failed"]),
                 "Nested-loop approach correctly checks every pair",
                 "Early return on finding the answer keeps things simple",
             ],
-            improve: [
+            whatToImprove: [
                 "Your solution is O(n²) — try using a hash map to bring it down to O(n)",
                 "With a hash map, store `num → index` as you iterate and check if `target - num` already exists",
                 "Add input validation (e.g., handle empty arrays)",
             ],
             modelApproach:
                 "Iterate through the array once. For each element, compute `complement = target - nums[i]`. If `complement` exists in the hash map, return `[map.get(complement), i]`. Otherwise, store `nums[i] → i` in the map. This gives O(n) time and O(n) space — much faster than O(n²).",
+            errors: [],
             edgeCases: [
                 "Duplicate values (e.g., [3,3], target=6 → expect [0,1])",
                 "Negative numbers in the array",
@@ -150,12 +151,12 @@ function buildTwoSumFeedback(code: string, allTestsPassed: boolean) {
         return {
             timeComplexity: "O(n)",
             spaceComplexity: "O(n)",
-            didWell: [
+            whatYouDidWell: [
                 ...(allTestsPassed ? ["Correct solution — all test cases pass ✓"] : ["Hash map approach is the right idea, but the output was incorrect"]),
                 "Optimal O(n) hash map approach used",
                 "Single-pass iteration is exactly right",
             ],
-            improve: [
+            whatToImprove: [
                 allTestsPassed
                     ? "Consider using descriptive variable names (e.g., `seen` instead of `map`)"
                     : "Double-check your index tracking — ensure you return the correct pair of indices",
@@ -164,6 +165,7 @@ function buildTwoSumFeedback(code: string, allTestsPassed: boolean) {
             ],
             modelApproach:
                 "Iterate through the array once. For each element, compute `complement = target - nums[i]`. If `complement` exists in the hash map, return `[map.get(complement), i]`. Otherwise, store `nums[i] → i` in the map. This gives O(n) time and O(n) space.",
+            errors: [],
             edgeCases: [
                 "Duplicate values (e.g., [3,3], target=6 → expect [0,1])",
                 "Negative numbers in the array",
@@ -176,18 +178,19 @@ function buildTwoSumFeedback(code: string, allTestsPassed: boolean) {
     return {
         timeComplexity: allTestsPassed ? "O(n)" : "Unknown",
         spaceComplexity: "O(1)",
-        didWell: [
+        whatYouDidWell: [
             allTestsPassed
                 ? "Correct solution — all test cases pass ✓"
                 : "Attempted the Two Sum problem — keep working on the logic",
         ],
-        improve: [
+        whatToImprove: [
             "Use a hash map (object / Map / unordered_map / dict) to achieve O(n) time",
             "For each element, compute complement = target - nums[i] and check if it was seen before",
             "Consider edge cases like empty arrays and duplicate values",
         ],
         modelApproach:
             "Iterate through the array once. For each element, compute `complement = target - nums[i]`. If `complement` exists in the hash map, return `[map.get(complement), i]`. Otherwise, store `nums[i] → i` in the map. This gives O(n) time and O(n) space.",
+        errors: [],
         edgeCases: [
             "Duplicate values (e.g., [3,3], target=6 → expect [0,1])",
             "Negative numbers in the array",
@@ -204,7 +207,7 @@ function buildValidParenthesesFeedback(code: string, allTestsPassed: boolean) {
     return {
         timeComplexity: "O(n)",
         spaceComplexity: stackUsed ? "O(n)" : "O(1)",
-        didWell: [
+        whatYouDidWell: [
             ...(allTestsPassed
                 ? ["Correct solution — all test cases pass ✓"]
                 : stackUsed
@@ -214,7 +217,7 @@ function buildValidParenthesesFeedback(code: string, allTestsPassed: boolean) {
             ...(handlesAllBrackets && allTestsPassed ? ["Correctly handles all three bracket types: (), [], {}"] : []),
             ...(hasEarlyReturn && allTestsPassed ? ["Early false return on mismatch is efficient"] : []),
         ],
-        improve: [
+        whatToImprove: [
             stackUsed
                 ? "Use a Map for bracket pairs instead of multiple if-else for cleaner code"
                 : "Use a stack (array with push/pop) to track unmatched opening brackets",
@@ -223,6 +226,7 @@ function buildValidParenthesesFeedback(code: string, allTestsPassed: boolean) {
         ],
         modelApproach:
             "Create a stack and a mapping `{')': '(', '}': '{', ']': '['}`. For each character: if it's an open bracket, push it. If it's a close bracket, pop from the stack and check it matches the expected open bracket. Return `stack.length === 0` at the end.",
+        errors: [],
         edgeCases: [
             'Single bracket like `(` — should return false',
             'Interleaved brackets like `([)]` — should return false',
@@ -241,7 +245,7 @@ function buildLRUCacheFeedback(code: string, allTestsPassed: boolean) {
     return {
         timeComplexity: hasMap ? "O(1) per operation" : "Unknown",
         spaceComplexity: "O(capacity)",
-        didWell: [
+        whatYouDidWell: [
             ...(allTestsPassed
                 ? ["Correct solution — all test cases pass ✓"]
                 : hasGetImpl && hasPutImpl
@@ -250,7 +254,7 @@ function buildLRUCacheFeedback(code: string, allTestsPassed: boolean) {
             ...(hasMap ? ["Hash map used for O(1) key lookup ✓"] : []),
             ...(allTestsPassed ? ["LRU eviction policy correctly implemented ✓"] : []),
         ],
-        improve: [
+        whatToImprove: [
             !hasGetImpl ? "Implement get() — it must return the cached value or -1 if the key doesn't exist" :
                 "Use sentinel head/tail nodes in the doubly linked list to simplify edge cases",
             !hasPutImpl ? "Implement put() — it must insert/update and evict the LRU key when over capacity" :
@@ -259,6 +263,7 @@ function buildLRUCacheFeedback(code: string, allTestsPassed: boolean) {
         ],
         modelApproach:
             "Maintain a doubly linked list (MRU at head, LRU at tail) and a hash map (key → node). On `get`: move the node to head and return its value. On `put`: if key exists, update value and move to head. If not, create a new node at head. If over capacity, delete the tail node and remove its key from the map.",
+        errors: [],
         edgeCases: [
             "Capacity of 1 — any put after the first should evict the existing entry",
             "`get` on a non-existent key must return -1",
@@ -270,17 +275,18 @@ function buildLRUCacheFeedback(code: string, allTestsPassed: boolean) {
 const DEFAULT_CODING = {
     timeComplexity: "O(n)",
     spaceComplexity: "O(1)",
-    didWell: [
+    whatYouDidWell: [
         "You attempted the problem with a working approach",
         "Code structure is readable and well-organized",
     ],
-    improve: [
+    whatToImprove: [
         "Consider edge cases such as empty inputs or boundary values",
         "Look for opportunities to optimize time or space complexity",
         "Add comments to explain your algorithmic thinking",
     ],
     modelApproach:
         "Break the problem into sub-problems. Identify if sorting, hashing, two pointers, or a sliding window could simplify the solution. Aim for the lowest time complexity first, then optimize space.",
+    errors: [] as string[],
     edgeCases: [
         "Empty input",
         "Single element input",
@@ -303,9 +309,10 @@ export function generateCodingFeedback(
             code: _code,
             timeComplexity: "O(1)",
             spaceComplexity: "O(1)",
-            didWell: ["Attempted to interact with the environment"],
-            improve: ["Please provide a valid logic block instead of submitting unmodified templates."],
+            whatYouDidWell: ["Attempted to interact with the environment"],
+            whatToImprove: ["Please provide a valid logic block instead of submitting unmodified templates."],
             modelApproach: "No solution provided. Make sure to implement the requested logic before clicking submit.",
+            errors: ["No solution provided — code is empty or unmodified boilerplate."],
             edgeCases: ["Empty input bypass detected"],
         };
     }
@@ -333,8 +340,8 @@ export function generateCodingFeedback(
         default:
             meta = {
                 ...DEFAULT_CODING,
-                didWell: allPassed
-                    ? DEFAULT_CODING.didWell
+                whatYouDidWell: allPassed
+                    ? DEFAULT_CODING.whatYouDidWell
                     : ["Attempted the problem — review the expected output and try again"],
             };
     }
