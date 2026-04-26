@@ -93,38 +93,50 @@ export default function StudentProgressPage() {
     const [coding, setCoding] = useState<CodingResult | null>(null);
     const [hr, setHr] = useState<HRResult | null>(null);
 
-    // Fetch real user data from API
+    // Fetch real user data from API, THEN load localStorage only if it belongs to this user
     useEffect(() => {
         let cancelled = false;
-        async function fetchUser() {
+        async function fetchAndLoad() {
+            let dbUser = DEFAULT_USER;
             try {
                 const res = await fetch("/api/auth/me");
                 if (res.ok) {
                     const data = await res.json();
-                    if (!cancelled) setUser(data.user);
+                    if (!cancelled) {
+                        dbUser = data.user;
+                        setUser(data.user);
+                    }
                 }
             } catch {
                 const storedName = localStorage.getItem("userName");
-                if (!cancelled && storedName) setUser(prev => ({ ...prev, name: storedName }));
-            } finally {
-                if (!cancelled) setIsLoading(false);
+                if (!cancelled && storedName) {
+                    dbUser = { ...DEFAULT_USER, name: storedName };
+                    setUser(dbUser);
+                }
             }
-        }
-        fetchUser();
-        return () => { cancelled = true; };
-    }, []);
 
-    // Load real interview results from localStorage
-    useEffect(() => {
-        const apt = loadFromStorage<AptitudeResult>(STORAGE_KEYS.aptitude);
-        const cod = loadFromStorage<CodingResult>(STORAGE_KEYS.coding);
-        const hrRes = loadFromStorage<HRResult>(STORAGE_KEYS.hr);
-        setAptitude(apt);
-        setCoding(cod);
-        setHr(hrRes);
-        if (apt || cod || hrRes) {
-            setReport(generateFullReport(apt, cod, hrRes));
+            // Only load localStorage interview data if:
+            // 1. User has DB attempts (they've completed interviews on this account), OR
+            // 2. There's a fresh session flag (just finished an interview right now)
+            const hasFreshSession = sessionStorage.getItem("aimock_stats_saved_session");
+            const userHasAttempts = (dbUser.totalAttempts ?? 0) > 0;
+
+            if (!cancelled && (userHasAttempts || hasFreshSession)) {
+                const apt = loadFromStorage<AptitudeResult>(STORAGE_KEYS.aptitude);
+                const cod = loadFromStorage<CodingResult>(STORAGE_KEYS.coding);
+                const hrRes = loadFromStorage<HRResult>(STORAGE_KEYS.hr);
+                setAptitude(apt);
+                setCoding(cod);
+                setHr(hrRes);
+                if (apt || cod || hrRes) {
+                    setReport(generateFullReport(apt, cod, hrRes));
+                }
+            }
+
+            if (!cancelled) setIsLoading(false);
         }
+        fetchAndLoad();
+        return () => { cancelled = true; };
     }, []);
 
     // Computed values

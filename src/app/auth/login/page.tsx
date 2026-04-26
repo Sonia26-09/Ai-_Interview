@@ -109,6 +109,10 @@ function LoginPageContent() {
 
             toast.success("Login successful!");
             localStorage.setItem("userName", data.user.name);
+            // Clear previous user's interview data so it doesn't bleed into new session
+            localStorage.removeItem("aimock_aptitude_result");
+            localStorage.removeItem("aimock_coding_result");
+            localStorage.removeItem("aimock_hr_result");
             window.location.href = role === "recruiter" ? "/recruiter/dashboard" : "/student/dashboard";
         } catch (error) {
             console.error("Login error:", error);
@@ -145,6 +149,10 @@ function LoginPageContent() {
 
             toast.success("Login successful!");
             localStorage.setItem("userName", data.user.name);
+            // Clear previous user's interview data so it doesn't bleed into new session
+            localStorage.removeItem("aimock_aptitude_result");
+            localStorage.removeItem("aimock_coding_result");
+            localStorage.removeItem("aimock_hr_result");
             window.location.href = role === "recruiter" ? "/recruiter/dashboard" : "/student/dashboard";
         } catch (error) {
             console.error("2FA error:", error);

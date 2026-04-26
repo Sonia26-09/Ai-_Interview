@@ -22,7 +22,12 @@ export default function StudentProfilePage() {
     const [isEditing, setIsEditing] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isPageLoading, setIsPageLoading] = useState(true);
-    const [selectedStack, setSelectedStack] = useState<string[]>(["JavaScript", "React", "Node.js", "MongoDB"]);
+    const [selectedStack, setSelectedStack] = useState<string[]>([]);
+    const [headline, setHeadline] = useState("");
+    const [bio, setBio] = useState("");
+    const [location, setLocation] = useState("");
+    const [github, setGithub] = useState("");
+    const [linkedin, setLinkedin] = useState("");
     const router = useRouter();
 
     useEffect(() => {
@@ -38,6 +43,12 @@ export default function StudentProfilePage() {
                     setUserName(data.user.name);
                     setEditName(data.user.name);
                     setEmail(data.user.email);
+                    setHeadline(data.user.headline || "");
+                    setBio(data.user.bio || "");
+                    setLocation(data.user.location || "");
+                    setGithub(data.user.github || "");
+                    setLinkedin(data.user.linkedin || "");
+                    setSelectedStack(data.user.techStack || []);
                     localStorage.setItem("userName", data.user.name);
                 }
             } catch (error) {
@@ -111,17 +122,17 @@ export default function StudentProfilePage() {
                                 )}
                             </div>
                             <h2 className="text-xl font-bold text-text-primary">{userName}</h2>
-                            <p className="text-neon-cyan text-sm font-medium mt-1">Full Stack Developer</p>
+                            <p className="text-neon-cyan text-sm font-medium mt-1">{headline || "—"}</p>
                             
                             <div className="w-full mt-6 space-y-3 pt-6 border-t border-white/10">
                                 <div className="flex items-center text-sm text-text-secondary">
                                     <Mail className="w-4 h-4 mr-3 text-text-muted" /> {email}
                                 </div>
                                 <div className="flex items-center text-sm text-text-secondary">
-                                    <MapPin className="w-4 h-4 mr-3 text-text-muted" /> San Francisco, CA
+                                    <MapPin className="w-4 h-4 mr-3 text-text-muted" /> {location || "—"}
                                 </div>
                                 <div className="flex items-center text-sm text-text-secondary">
-                                    <Briefcase className="w-4 h-4 mr-3 text-text-muted" /> Seeking Opportunities
+                                    <Briefcase className="w-4 h-4 mr-3 text-text-muted" /> {headline ? "Seeking Opportunities" : "—"}
                                 </div>
                             </div>
                         </div>
@@ -132,9 +143,9 @@ export default function StudentProfilePage() {
                                 <Globe className="w-4 h-4" /> Resume
                             </h3>
                             <div className="border border-dashed border-white/20 rounded-xl p-5 text-center bg-white/5 hover:bg-white/10 transition-colors cursor-pointer">
-                                <Upload className="w-6 h-6 text-neon-cyan mx-auto mb-2" />
-                                <p className="text-sm font-medium text-text-primary">Resume.pdf</p>
-                                <p className="text-xs text-text-muted mt-1">Updated 2 days ago</p>
+                                <Upload className="w-6 h-6 text-text-muted mx-auto mb-2" />
+                                <p className="text-sm text-text-muted">No resume uploaded</p>
+                                <p className="text-xs text-text-muted/60 mt-1">Click to upload your resume</p>
                             </div>
                         </div>
                     </div>
@@ -146,12 +157,14 @@ export default function StudentProfilePage() {
                             
                             <div className="grid sm:grid-cols-2 gap-5 mb-6">
                                 <Input label="Full Name" value={editName} onChange={(e) => setEditName(e.target.value)} disabled={!isEditing} />
-                                <Input label="Professional Headline" defaultValue="Full Stack Developer" disabled={!isEditing} />
+                                <Input label="Professional Headline" value={headline} onChange={(e) => setHeadline(e.target.value)} placeholder="e.g. Full Stack Developer" disabled={!isEditing} />
                                 <div className="sm:col-span-2">
                                     <label className="block text-sm font-medium text-text-secondary mb-1.5">Bio</label>
                                     <textarea 
                                         className="w-full bg-surface-2 border border-border-bright rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-neon-cyan focus:ring-1 focus:ring-neon-cyan transition-all disabled:opacity-50 min-h-[100px] resize-y"
-                                        defaultValue="Passionate software engineer focused on building scalable web applications. Strong foundation in DSA and system design."
+                                        value={bio}
+                                        onChange={(e) => setBio(e.target.value)}
+                                        placeholder="Tell us about yourself..."
                                         disabled={!isEditing}
                                     />
                                 </div>
@@ -181,8 +194,8 @@ export default function StudentProfilePage() {
 
                             <h3 className="font-semibold text-lg text-text-primary mb-4">Social Links</h3>
                             <div className="grid sm:grid-cols-2 gap-5 mb-8">
-                                <Input label="GitHub URL" defaultValue="github.com/developer" leftIcon={<Github className="w-4 h-4" />} disabled={!isEditing} />
-                                <Input label="LinkedIn URL" defaultValue="linkedin.com/in/developer" leftIcon={<Linkedin className="w-4 h-4" />} disabled={!isEditing} />
+                                <Input label="GitHub URL" value={github} onChange={(e) => setGithub(e.target.value)} placeholder="github.com/username" leftIcon={<Github className="w-4 h-4" />} disabled={!isEditing} />
+                                <Input label="LinkedIn URL" value={linkedin} onChange={(e) => setLinkedin(e.target.value)} placeholder="linkedin.com/in/username" leftIcon={<Linkedin className="w-4 h-4" />} disabled={!isEditing} />
                             </div>
 
                             {isEditing && (

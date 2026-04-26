@@ -318,28 +318,16 @@ export default function HRRoundPage() {
                                         className="flex-1 bg-surface-2 border border-border rounded-xl text-sm text-text-primary placeholder:text-text-muted px-4 py-2.5 focus:outline-none focus:border-neon-purple/50 focus:ring-2 focus:ring-neon-purple/10 resize-none"
                                         disabled={isTyping}
                                     />
-                                    <div className="flex flex-col gap-2">
-                                        <Button variant="neon-purple" size="md" onClick={handleSend}
-                                            disabled={!input.trim() || isTyping}
-                                            leftIcon={<Send className="w-4 h-4" />}>
-                                            Send
-                                        </Button>
-                                        <Button variant="danger" size="md" onClick={() => setShowEndConfirm(true)}
-                                            disabled={isTyping}
-                                            leftIcon={<LogOut className="w-4 h-4" />}>
-                                            End
-                                        </Button>
-                                    </div>
+                                    <Button variant="neon-purple" size="md" onClick={handleSend}
+                                        disabled={!input.trim() || isTyping}
+                                        leftIcon={<Send className="w-4 h-4" />}>
+                                        Send
+                                    </Button>
                                 </div>
                             </div>
                         ) : (
-                            <div className="p-4 border-t border-white/8 flex gap-3">
-                                <Button variant="ghost" size="md" className="flex-1"
-                                    onClick={() => setShowFeedbackSummary(v => !v)}
-                                    leftIcon={<MessageSquare className="w-4 h-4" />}>
-                                    {showFeedbackSummary ? "Hide" : "Show"} Answer Feedback
-                                </Button>
-                                <Link href={`/interview/${params.id}/results`} className="flex-1">
+                            <div className="p-4 border-t border-white/8">
+                                <Link href={`/interview/${params.id}/results`} className="block">
                                     <Button variant="primary" className="w-full" rightIcon={<ArrowRight className="w-4 h-4" />}>
                                         View Full AI Report
                                     </Button>

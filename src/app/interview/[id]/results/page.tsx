@@ -74,9 +74,36 @@ export default function InterviewResultsPage() {
         setCoding(cod);
         setHr(hrRes);
         if (apt || cod || hrRes) {
-            setReport(generateFullReport(apt, cod, hrRes));
+            const generated = generateFullReport(apt, cod, hrRes);
+            setReport(generated);
+
+            // ── Persist stats to DB (once per page load session) ─
+            const sessionKey = "aimock_stats_saved_session";
+            const savedSession = sessionStorage.getItem(sessionKey);
+            if (!savedSession) {
+                sessionStorage.setItem(sessionKey, "true");
+                const xpEarned = Math.round(generated.overallScore * 4);
+                fetch("/api/auth/update-stats", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        overallScore: generated.overallScore,
+                        xpEarned,
+                    }),
+                })
+                .then(res => {
+                    if (!res.ok) {
+                        console.error("Stats update failed:", res.status);
+                        sessionStorage.removeItem(sessionKey);
+                    }
+                })
+                .catch((err) => {
+                    console.error("Stats update error:", err);
+                    sessionStorage.removeItem(sessionKey);
+                });
+            }
         }
-    }, []);
+    }, [params.id]);
 
     const isPassed = report.overallScore >= 70;
 
