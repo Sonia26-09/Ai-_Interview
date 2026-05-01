@@ -67,10 +67,56 @@ export default function CreateInterviewPage() {
         }));
     };
 
+    const [error, setError] = useState<string | null>(null);
+
     const handleSubmit = async () => {
+        if (!form.title.trim()) {
+            setError("Interview title is required.");
+            return;
+        }
         setIsLoading(true);
-        await new Promise(r => setTimeout(r, 1800));
-        window.location.href = "/recruiter/interviews";
+        setError(null);
+
+        try {
+            const res = await fetch("/api/interviews", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    title: form.title.trim(),
+                    role: form.role.trim(),
+                    description: form.description,
+                    rounds: rounds.map((r) => ({
+                        type: r.type,
+                        title: r.title,
+                        duration: r.duration,
+                        difficulty: r.difficulty,
+                        questionCount: r.questionCount,
+                        techStack: r.techStack || [],
+                        isRequired: r.isRequired,
+                        order: r.order,
+                    })),
+                    difficulty: form.difficulty,
+                    deadline: form.deadline || null,
+                    passingScore: form.passingScore,
+                    techStack: form.techStack,
+                    antiCheat: form.antiCheat,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                setError(data.error || "Failed to create interview.");
+                setIsLoading(false);
+                return;
+            }
+
+            window.location.href = "/recruiter/interviews";
+        } catch (err) {
+            console.error("Create interview error:", err);
+            setError("Something went wrong. Please try again.");
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -322,6 +368,14 @@ export default function CreateInterviewPage() {
                         </div>
                     )}
                 </div>
+
+                {/* Error Banner */}
+                {error && (
+                    <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center gap-2">
+                        <span>⚠️</span>
+                        <span>{error}</span>
+                    </div>
+                )}
 
                 {/* Navigation */}
                 <div className="flex justify-between">
