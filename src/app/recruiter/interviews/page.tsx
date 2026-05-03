@@ -3,17 +3,18 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import {
-    Search, Filter, Plus, Users, Brain, Calendar, ChevronRight,
-    Building2, Clock, MoreVertical, Copy, Trash2, Eye, PlayCircle, Loader2
+    Search, Plus, Users, Brain, Calendar,
+    Building2, Clock, MoreVertical, Trash2, Eye, PlayCircle, PauseCircle, Loader2
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import Input from "@/components/ui/Input";
-import { getDifficultyColor, getDifficultyBg, formatDuration } from "@/lib/utils";
+import { formatDuration } from "@/lib/utils";
 
 const statusColors: Record<string, any> = {
     active: "green",
+    paused: "orange",
     draft: "yellow",
     closed: "default",
     archived: "default",
@@ -49,11 +50,13 @@ interface InterviewData {
 
 export default function RecruiterInterviews() {
     const [search, setSearch] = useState("");
-    const [filter, setFilter] = useState<"all" | "active" | "draft" | "closed">("all");
+    const [filter, setFilter] = useState<"all" | "active" | "paused" | "draft" | "closed">("all");
     const [openMenu, setOpenMenu] = useState<string | null>(null);
     const [userName, setUserName] = useState("Recruiter");
     const [interviews, setInterviews] = useState<InterviewData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [actionLoading, setActionLoading] = useState<string | null>(null);
+    const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
     useEffect(() => {
         async function fetchData() {
@@ -85,6 +88,68 @@ export default function RecruiterInterviews() {
 
         fetchData();
     }, []);
+
+    // ── Toggle Pause / Activate ───────────────────────────────────────
+    const handleTogglePause = async (interviewId: string, currentStatus: string) => {
+        setActionLoading(interviewId);
+        setOpenMenu(null);
+        const newStatus = currentStatus === "active" ? "paused" : "active";
+        try {
+            const res = await fetch(`/api/interviews/${interviewId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ status: newStatus }),
+            });
+            if (res.ok) {
+                setInterviews(prev =>
+                    prev.map(i => i.id === interviewId ? { ...i, status: newStatus } : i)
+                );
+            } else {
+                const data = await res.json().catch(() => ({}));
+                alert(data.error || "Failed to update interview status.");
+            }
+        } catch (err) {
+            console.error("Toggle pause error:", err);
+            alert("Something went wrong. Please try again.");
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    // ── Delete Interview ──────────────────────────────────────────────
+    const handleDelete = async (interviewId: string) => {
+        setActionLoading(interviewId);
+        setDeleteConfirm(null);
+        setOpenMenu(null);
+        try {
+            const res = await fetch(`/api/interviews/${interviewId}`, {
+                method: "DELETE",
+            });
+            if (res.ok) {
+                setInterviews(prev => prev.filter(i => i.id !== interviewId));
+            } else {
+                const data = await res.json().catch(() => ({}));
+                alert(data.error || "Failed to delete interview.");
+            }
+        } catch (err) {
+            console.error("Delete error:", err);
+            alert("Something went wrong. Please try again.");
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    // Close menus when clicking outside
+    useEffect(() => {
+        const handleClickOutside = () => {
+            setOpenMenu(null);
+            setDeleteConfirm(null);
+        };
+        if (openMenu || deleteConfirm) {
+            document.addEventListener("click", handleClickOutside);
+            return () => document.removeEventListener("click", handleClickOutside);
+        }
+    }, [openMenu, deleteConfirm]);
 
     const filtered = interviews.filter((i) => {
         const matchSearch = i.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -119,7 +184,7 @@ export default function RecruiterInterviews() {
                         />
                     </div>
                     <div className="flex gap-2">
-                        {(["all", "active", "draft", "closed"] as const).map((f) => (
+                        {(["all", "active", "paused", "draft", "closed"] as const).map((f) => (
                             <button
                                 key={f}
                                 onClick={() => setFilter(f)}
@@ -156,7 +221,7 @@ export default function RecruiterInterviews() {
                 {!isLoading && (
                     <div className="space-y-3">
                         {filtered.map((interview) => (
-                            <div key={interview.id} className="glass rounded-2xl border border-white/8 p-5 hover:border-white/15 transition-all group">
+                            <div key={interview.id} className={`glass rounded-2xl border p-5 hover:border-white/15 transition-all group ${actionLoading === interview.id ? "opacity-60 pointer-events-none" : "border-white/8"}`}>
                                 <div className="flex flex-col sm:flex-row sm:items-start gap-4">
                                     <div className="flex items-start gap-4 flex-1">
                                         <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-neon-cyan/20 to-neon-purple/20 border border-white/10 flex items-center justify-center flex-shrink-0">
@@ -204,26 +269,57 @@ export default function RecruiterInterviews() {
                                         <Link href={`/recruiter/interviews/${interview.id}`}>
                                             <Button variant="outline" size="sm" leftIcon={<Eye className="w-3.5 h-3.5" />}>View</Button>
                                         </Link>
-                                        <div className="relative">
+                                        <div className="relative" onClick={(e) => e.stopPropagation()}>
                                             <button
                                                 onClick={() => setOpenMenu(openMenu === interview.id ? null : interview.id)}
                                                 className="p-1.5 rounded-lg text-text-muted hover:text-text-secondary hover:bg-white/5 transition-all"
                                             >
-                                                <MoreVertical className="w-4 h-4" />
+                                                {actionLoading === interview.id ? (
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                ) : (
+                                                    <MoreVertical className="w-4 h-4" />
+                                                )}
                                             </button>
                                             {openMenu === interview.id && (
-                                                <div className="absolute right-0 top-full mt-1 w-40 glass rounded-xl border border-white/10 shadow-glass z-10 p-1">
-                                                    <button className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-secondary hover:bg-white/5 rounded-lg transition-all">
-                                                        <Copy className="w-3.5 h-3.5" />Duplicate
-                                                    </button>
-                                                    <button className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-secondary hover:bg-white/5 rounded-lg transition-all">
-                                                        <PlayCircle className="w-3.5 h-3.5" />
-                                                        {interview.status === "active" ? "Pause" : "Activate"}
+                                                <div className="absolute right-0 top-full mt-1 w-44 glass rounded-xl border border-white/10 shadow-glass z-10 p-1">
+                                                    <button
+                                                        onClick={() => handleTogglePause(interview.id, interview.status)}
+                                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-text-secondary hover:bg-white/5 rounded-lg transition-all"
+                                                    >
+                                                        {interview.status === "active" ? (
+                                                            <><PauseCircle className="w-3.5 h-3.5" />Pause Interview</>
+                                                        ) : (
+                                                            <><PlayCircle className="w-3.5 h-3.5" />Activate Interview</>
+                                                        )}
                                                     </button>
                                                     <hr className="border-white/10 my-1" />
-                                                    <button className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 rounded-lg transition-all">
+                                                    <button
+                                                        onClick={() => { setDeleteConfirm(interview.id); setOpenMenu(null); }}
+                                                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                                    >
                                                         <Trash2 className="w-3.5 h-3.5" />Delete
                                                     </button>
+                                                </div>
+                                            )}
+                                            {/* Delete Confirmation */}
+                                            {deleteConfirm === interview.id && (
+                                                <div className="absolute right-0 top-full mt-1 w-64 glass rounded-xl border border-red-500/30 shadow-glass z-20 p-4" onClick={(e) => e.stopPropagation()}>
+                                                    <p className="text-sm text-text-primary font-medium mb-1">Delete this interview?</p>
+                                                    <p className="text-xs text-text-muted mb-3">This will permanently remove it from both recruiter and student side.</p>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => setDeleteConfirm(null)}
+                                                            className="flex-1 px-3 py-1.5 text-xs rounded-lg glass border border-white/10 text-text-secondary hover:bg-white/5 transition-all"
+                                                        >
+                                                            Cancel
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDelete(interview.id)}
+                                                            className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-all"
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>

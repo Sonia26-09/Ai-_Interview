@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "react-hot-toast";
@@ -59,8 +59,62 @@ interface ExecOutput {
 
 export default function CodingRoundPage() {
     const params = useParams();
+    const interviewId = params.id as string;
+
+    // ── Dynamic questions from Gemini or fallback to mock ────────────
+    const [codingQuestions, setCodingQuestions] = useState(mockCodingQuestions);
+    const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
+
+    useEffect(() => {
+        async function loadQuestions() {
+            try {
+                // 1. Fetch interview config from DB
+                const configRes = await fetch(`/api/interviews/${interviewId}?public=true`);
+                if (configRes.ok) {
+                    const configData = await configRes.json();
+                    const codingRound = configData.interview?.rounds?.find(
+                        (r: any) => r.type === "coding"
+                    );
+
+                    if (codingRound && codingRound.questionCount) {
+                        const count = codingRound.questionCount;
+                        const difficulty = codingRound.difficulty || "Medium";
+
+                        // 2. Generate questions dynamically via Gemini
+                        const genRes = await fetch("/api/generate-questions", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                count,
+                                difficulty,
+                                roundType: "coding",
+                            }),
+                        });
+
+                        if (genRes.ok) {
+                            const genData = await genRes.json();
+                            if (genData.questions && genData.questions.length > 0) {
+                                setCodingQuestions(genData.questions);
+                                setIsLoadingQuestions(false);
+                                return;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to generate coding questions:", err);
+            }
+
+            // 3. Fallback to mock questions
+            setCodingQuestions(mockCodingQuestions);
+            setIsLoadingQuestions(false);
+        }
+
+        loadQuestions();
+    }, [interviewId]);
+
     const [currentQ, setCurrentQ] = useState(0);
-    const [code, setCode] = useState(typeof mockCodingQuestions[0].starterCode === 'object' ? mockCodingQuestions[0].starterCode.javascript : mockCodingQuestions[0].starterCode || "");
+    const [code, setCode] = useState(typeof codingQuestions[0]?.starterCode === 'object' ? codingQuestions[0].starterCode.javascript : codingQuestions[0]?.starterCode || "");
     const [activeTab, setActiveTab] = useState<"problem" | "hints" | "ai">("problem");
     const [testResults, setTestResults] = useState<null | { passed: number; total: number; results: boolean[]; isSubmitResult: boolean; compileError?: boolean; runtimeError?: boolean; errorMessage?: string }>(null);
     const [isRunning, setIsRunning] = useState(false);
@@ -74,7 +128,16 @@ export default function CodingRoundPage() {
     const [execOutput, setExecOutput] = useState<ExecOutput | null>(null);
     const [runTimedOut, setRunTimedOut] = useState(false);
 
-    const q = mockCodingQuestions[currentQ];
+    // Reset code when questions change (after dynamic load)
+    useEffect(() => {
+        if (codingQuestions.length > 0) {
+            const starter = codingQuestions[0]?.starterCode;
+            setCode(typeof starter === 'object' ? starter.javascript || starter[language] || "" : starter || "");
+            setCurrentQ(0);
+        }
+    }, [codingQuestions]);
+
+    const q = codingQuestions[currentQ];
 
     const checkBoilerplate = () => {
         const cleanCode = code.replace(/\/\/.*|\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, '');
@@ -262,7 +325,7 @@ export default function CodingRoundPage() {
     const handleNextProblem = () => {
         const nextIdx = currentQ + 1;
         setCurrentQ(nextIdx);
-        const nextStarter = mockCodingQuestions[nextIdx]?.starterCode;
+        const nextStarter = codingQuestions[nextIdx]?.starterCode;
         setCode(typeof nextStarter === 'object' ? nextStarter[language] : nextStarter || "");
         setTestResults(null);
         setExecOutput(null);
@@ -280,6 +343,28 @@ export default function CodingRoundPage() {
         ? allFeedbacks.reduce((a, f) => a + f.score, 0)
         : 0;
 
+    // ── Loading Screen ────────────────────────────────────────────────
+    if (isLoadingQuestions) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <Navbar role="student" userName="Student" />
+                <div className="text-center">
+                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-neon-cyan to-neon-green flex items-center justify-center mx-auto mb-6 animate-pulse">
+                        <Brain className="w-10 h-10 text-background" />
+                    </div>
+                    <h2 className="text-2xl font-bold font-display mb-2">Generating Coding Problems...</h2>
+                    <p className="text-text-muted text-sm">AI is preparing your coding challenges</p>
+                    <div className="flex justify-center gap-1.5 mt-6">
+                        {[0, 1, 2].map(i => (
+                            <span key={i} className="w-2.5 h-2.5 rounded-full bg-neon-cyan animate-bounce"
+                                style={{ animationDelay: `${i * 150}ms` }} />
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     if (submitted) {
         return (
             <div className="min-h-screen">
@@ -289,12 +374,12 @@ export default function CodingRoundPage() {
                         <CheckCircle2 className="w-10 h-10 text-neon-green" />
                     </div>
                     <h1 className="text-3xl font-bold font-display mb-2">Coding Round Done!</h1>
-                    <p className="text-text-muted mb-2">{mockCodingQuestions.length} problems attempted</p>
+                    <p className="text-text-muted mb-2">{codingQuestions.length} problems attempted</p>
 
                     {/* Overall coding score */}
                     <div className="inline-flex flex-col items-center px-8 py-4 mb-6 rounded-2xl bg-gradient-to-br from-neon-green/10 to-neon-cyan/10 border border-neon-green/30">
                         <div className="text-5xl font-bold text-neon-green font-display">{codingScore}</div>
-                        <div className="text-xs text-text-muted mt-1 uppercase tracking-wider">Overall Coding Score / {mockCodingQuestions.length * 100}</div>
+                        <div className="text-xs text-text-muted mt-1 uppercase tracking-wider">Overall Coding Score / {codingQuestions.length * 100}</div>
                         <div className="flex gap-4 mt-3">
                             {allFeedbacks.map((f, i) => (
                                 <div key={f.questionId} className="text-center">
@@ -331,12 +416,12 @@ export default function CodingRoundPage() {
 
                     {/* Question selector */}
                     <div className="px-4 py-3 border-b border-white/8 flex items-center gap-2 flex-wrap">
-                        {mockCodingQuestions.map((q, i) => (
+                        {codingQuestions.map((q, i) => (
                             <button
                                 key={i}
                                 onClick={() => {
                                     setCurrentQ(i);
-                                    const nextStarter = mockCodingQuestions[i].starterCode;
+                                    const nextStarter = codingQuestions[i].starterCode;
                                     setCode(typeof nextStarter === 'object' ? nextStarter[language] : nextStarter || "");
                                     setTestResults(null);
                                     setExecOutput(null);
@@ -347,12 +432,12 @@ export default function CodingRoundPage() {
                                     "px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
                                     currentQ === i
                                         ? "bg-neon-cyan/10 border-neon-cyan/30 text-neon-cyan"
-                                        : allFeedbacks.find(f => f.questionId === mockCodingQuestions[i].id)
+                                        : allFeedbacks.find(f => f.questionId === codingQuestions[i].id)
                                             ? "bg-neon-green/10 border-neon-green/30 text-neon-green"
                                             : "glass border-white/10 text-text-muted hover:border-white/20"
                                 )}
                             >
-                                Q{i + 1} {allFeedbacks.find(f => f.questionId === mockCodingQuestions[i].id) ? "✓" : ""}
+                                Q{i + 1} {allFeedbacks.find(f => f.questionId === codingQuestions[i].id) ? "✓" : ""}
                             </button>
                         ))}
                         <Badge variant={q.difficulty === "Easy" ? "green" : q.difficulty === "Hard" ? "red" : "yellow"} size="sm">
@@ -584,7 +669,7 @@ export default function CodingRoundPage() {
                             <Button variant="neon-green" size="sm" isLoading={isSubmitting} disabled={isRunning || isSubmitting} onClick={submitCode}>
                                 Submit &amp; Analyze
                             </Button>
-                            {aiFeedback && currentQ < mockCodingQuestions.length - 1 && (
+                            {aiFeedback && currentQ < codingQuestions.length - 1 && (
                                 <Button variant="primary" size="sm" onClick={handleNextProblem}
                                     rightIcon={<ArrowRight className="w-3.5 h-3.5" />}>
                                     Next Problem

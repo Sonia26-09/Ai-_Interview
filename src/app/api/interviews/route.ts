@@ -106,15 +106,69 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ─── GET /api/interviews — List interviews for the logged-in recruiter ──
+// ─── GET /api/interviews — List interviews ──────────────────────────
+// ?public=true → returns all active interviews (for students, no auth required)
+// Default      → returns interviews for the logged-in recruiter (auth required)
 export async function GET(request: NextRequest) {
   try {
+    const url = new URL(request.url);
+    const isPublic = url.searchParams.get("public") === "true";
+
+    await dbConnect();
+
+    if (isPublic) {
+      // ── Public listing for students — all active interviews ──────
+      const interviews = await Interview.find({ status: "active" })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      // Collect unique creator IDs to fetch recruiter names
+      const creatorIds = Array.from(new Set(interviews.map((int: any) => int.createdBy.toString())));
+      const creators = await User.find({ _id: { $in: creatorIds } }).select("name company").lean();
+      const creatorMap: Record<string, { name: string; company: string }> = {};
+      creators.forEach((c: any) => {
+        creatorMap[c._id.toString()] = { name: c.name || "Recruiter", company: c.company || "" };
+      });
+
+      const mapped = interviews.map((int: any) => {
+        const creator = creatorMap[int.createdBy.toString()] || { name: "Recruiter", company: "" };
+        return {
+          id: int._id.toString(),
+          title: int.title,
+          role: int.role,
+          company: creator.company || creator.name,
+          description: int.description,
+          rounds: (int.rounds || []).map((r: any) => ({
+            id: r._id?.toString() || r.id,
+            type: r.type,
+            title: r.title,
+            duration: r.duration,
+            difficulty: r.difficulty,
+            questionCount: r.questionCount,
+            techStack: r.techStack || [],
+            isRequired: r.isRequired,
+            order: r.order,
+          })),
+          status: int.status,
+          deadline: int.deadline || null,
+          applicants: int.applicants || 0,
+          passingScore: int.passingScore,
+          techStack: int.techStack || [],
+          difficulty: int.difficulty,
+          antiCheat: int.antiCheat,
+          createdAt: int.createdAt,
+          recruiterName: creator.name,
+        };
+      });
+
+      return NextResponse.json({ interviews: mapped }, { status: 200 });
+    }
+
+    // ── Recruiter's own interviews (auth required) ─────────────────
     const userId = await getUserId(request);
     if (!userId) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
-
-    await dbConnect();
 
     const interviews = await Interview.find({ createdBy: userId })
       .sort({ createdAt: -1 })
@@ -158,3 +212,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+

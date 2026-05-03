@@ -4,13 +4,13 @@ import Link from "next/link";
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import {
     Zap, Flame, Target, TrendingUp, Clock, Award, BookOpen,
-    ChevronRight, Play, BarChart3, Star, Users, Calendar, Brain
+    ChevronRight, Play, BarChart3, Star, Users, Calendar, Brain, Building2
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import { practiceTemplates } from "@/lib/mock-data";
-import { cn } from "@/lib/utils";
+import { cn, formatDuration } from "@/lib/utils";
 
 // Lazy load heavy recharts components
 const LazyCharts = lazy(() => import("@/components/dashboard/StudentCharts"));
@@ -81,9 +81,22 @@ const DEFAULT_USER: UserData = {
     badges: [],
 };
 
+interface DBInterview {
+    id: string;
+    title: string;
+    role: string;
+    company: string;
+    description: string;
+    rounds: { id: string; type: string; title: string; duration: number; questionCount: number }[];
+    difficulty: string;
+    techStack: string[];
+    recruiterName: string;
+}
+
 export default function StudentDashboard() {
     const [user, setUser] = useState<UserData>(DEFAULT_USER);
     const [isLoading, setIsLoading] = useState(true);
+    const [companyInterviews, setCompanyInterviews] = useState<DBInterview[]>([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -103,6 +116,19 @@ export default function StudentDashboard() {
             }
         }
         fetchUser();
+
+        // Fetch company interviews (public)
+        async function fetchCompanyInterviews() {
+            try {
+                const res = await fetch("/api/interviews?public=true");
+                if (res.ok) {
+                    const data = await res.json();
+                    if (!cancelled) setCompanyInterviews(data.interviews || []);
+                }
+            } catch { /* silent */ }
+        }
+        fetchCompanyInterviews();
+
         return () => { cancelled = true; };
     }, []);
 
@@ -250,6 +276,52 @@ export default function StudentDashboard() {
                         ))}
                     </div>
                 </div>
+
+                {/* Available Company Interviews */}
+                {companyInterviews.length > 0 && (
+                    <div className="glass rounded-2xl border border-white/8 p-6 mt-6">
+                        <div className="flex items-center justify-between mb-5">
+                            <div className="flex items-center gap-2">
+                                <Building2 className="w-4.5 h-4.5 text-neon-cyan" />
+                                <div>
+                                    <h2 className="font-semibold text-text-primary">Company Interviews</h2>
+                                    <p className="text-xs text-text-muted mt-0.5">Real interviews posted by recruiters</p>
+                                </div>
+                            </div>
+                            <Link href="/student/practice" className="text-xs text-neon-cyan hover:text-neon-cyan/80 flex items-center gap-1 transition-colors">
+                                View All <ChevronRight className="w-3 h-3" />
+                            </Link>
+                        </div>
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {companyInterviews.slice(0, 3).map((interview) => {
+                                const totalDuration = interview.rounds.reduce((a, r) => a + r.duration, 0);
+                                const totalQ = interview.rounds.reduce((a, r) => a + r.questionCount, 0);
+                                return (
+                                    <Link key={interview.id} href={`/interview/${interview.id}`}>
+                                        <div className="p-4 rounded-xl bg-white/3 border border-white/8 hover:border-neon-cyan/30 hover:bg-white/5 transition-all group cursor-pointer">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <Badge variant={interview.difficulty === "Hard" ? "red" : interview.difficulty === "Medium" ? "yellow" : "green"} size="sm">
+                                                    {interview.difficulty}
+                                                </Badge>
+                                                <span className="text-xs text-text-muted flex items-center gap-1">
+                                                    <Building2 className="w-3 h-3" />
+                                                    {interview.company || interview.recruiterName}
+                                                </span>
+                                            </div>
+                                            <h3 className="font-semibold text-sm text-text-primary mb-1 group-hover:text-neon-cyan transition-colors">{interview.title}</h3>
+                                            <p className="text-xs text-text-muted mb-3 line-clamp-2">{interview.description}</p>
+                                            <div className="flex items-center gap-3 text-xs text-text-muted">
+                                                <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatDuration(totalDuration)}</span>
+                                                <span className="flex items-center gap-1"><Brain className="w-3 h-3" />{interview.rounds.length} rounds</span>
+                                                <span className="flex items-center gap-1"><Target className="w-3 h-3" />{totalQ} Q</span>
+                                            </div>
+                                        </div>
+                                    </Link>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
             </main>
         </div>
     );

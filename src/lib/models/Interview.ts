@@ -32,7 +32,7 @@ export interface IInterview extends Document {
   role: string;
   description: string;
   rounds: IRound[];
-  status: "draft" | "active" | "closed" | "archived";
+  status: "draft" | "active" | "paused" | "closed" | "archived";
   createdBy: mongoose.Types.ObjectId;
   deadline?: Date;
   applicants: number;
@@ -52,7 +52,7 @@ const InterviewSchema = new Schema<IInterview>(
     rounds: { type: [RoundSchema], default: [] },
     status: {
       type: String,
-      enum: ["draft", "active", "closed", "archived"],
+      enum: ["draft", "active", "paused", "closed", "archived"],
       default: "active",
     },
     createdBy: {

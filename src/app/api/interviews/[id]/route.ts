@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import dbConnect from "@/lib/mongoose";
 import Interview from "@/lib/models/Interview";
+import User from "@/lib/models/User";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_for_development_only";
 const encodedSecret = new TextEncoder().encode(JWT_SECRET);
@@ -21,36 +22,58 @@ async function getUserId(request: NextRequest): Promise<string | null> {
 }
 
 // ─── GET /api/interviews/[id] — Fetch a single interview ────────────
+// ?public=true → public access for students (no auth, returns active/paused interviews)
+// Default      → recruiter access (auth + ownership required)
 export async function GET(
     request: NextRequest,
     { params }: { params: { id: string } }
 ) {
     try {
-        const userId = await getUserId(request);
-        if (!userId) {
-            return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-        }
-
         const { id } = params;
         if (!id) {
             return NextResponse.json({ error: "Interview ID is required" }, { status: 400 });
         }
 
+        const url = new URL(request.url);
+        const isPublic = url.searchParams.get("public") === "true";
+
         await dbConnect();
 
-        const int = await Interview.findOne({ _id: id, createdBy: userId }).lean();
+        let int: any;
+
+        if (isPublic) {
+            // Public access — students can view any non-draft interview
+            int = await Interview.findOne({
+                _id: id,
+                status: { $in: ["active", "paused"] },
+            }).lean();
+        } else {
+            // Recruiter access — requires auth + ownership
+            const userId = await getUserId(request);
+            if (!userId) {
+                return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+            }
+            int = await Interview.findOne({ _id: id, createdBy: userId }).lean();
+        }
 
         if (!int) {
             return NextResponse.json({ error: "Interview not found" }, { status: 404 });
         }
 
+        // Fetch creator name for public view
+        let recruiterName = "";
+        if (isPublic) {
+            const creator = await User.findById(int.createdBy).select("name company").lean() as any;
+            recruiterName = creator?.name || "Recruiter";
+        }
+
         const interview = {
-            id: (int as any)._id.toString(),
-            title: (int as any).title,
-            role: (int as any).role,
-            company: "",
-            description: (int as any).description,
-            rounds: ((int as any).rounds || []).map((r: any) => ({
+            id: int._id.toString(),
+            title: int.title,
+            role: int.role,
+            company: recruiterName || "",
+            description: int.description,
+            rounds: (int.rounds || []).map((r: any) => ({
                 id: r._id?.toString() || r.id,
                 type: r.type,
                 title: r.title,
@@ -61,15 +84,16 @@ export async function GET(
                 isRequired: r.isRequired,
                 order: r.order,
             })),
-            status: (int as any).status,
-            createdBy: (int as any).createdBy.toString(),
-            deadline: (int as any).deadline || null,
-            applicants: (int as any).applicants || 0,
-            passingScore: (int as any).passingScore,
-            techStack: (int as any).techStack || [],
-            difficulty: (int as any).difficulty,
-            antiCheat: (int as any).antiCheat,
-            createdAt: (int as any).createdAt,
+            status: int.status,
+            createdBy: int.createdBy.toString(),
+            deadline: int.deadline || null,
+            applicants: int.applicants || 0,
+            passingScore: int.passingScore,
+            techStack: int.techStack || [],
+            difficulty: int.difficulty,
+            antiCheat: int.antiCheat,
+            createdAt: int.createdAt,
+            recruiterName,
         };
 
         return NextResponse.json({ interview }, { status: 200 });
@@ -156,5 +180,49 @@ export async function PATCH(
         }
         console.error("Update interview error:", error);
         return NextResponse.json({ error: "Failed to update interview" }, { status: 500 });
+    }
+}
+
+// ─── DELETE /api/interviews/[id] — Delete an interview permanently ───
+export async function DELETE(
+    request: NextRequest,
+    { params }: { params: { id: string } }
+) {
+    try {
+        const userId = await getUserId(request);
+        if (!userId) {
+            return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+        }
+
+        const { id } = params;
+        if (!id) {
+            return NextResponse.json({ error: "Interview ID is required" }, { status: 400 });
+        }
+
+        await dbConnect();
+
+        // Verify ownership before deleting
+        const existing = await Interview.findOne({ _id: id, createdBy: userId });
+        if (!existing) {
+            return NextResponse.json({ error: "Interview not found" }, { status: 404 });
+        }
+
+        await Interview.findByIdAndDelete(id);
+
+        // Decrement recruiter's totalInterviews counter
+        await User.findByIdAndUpdate(userId, {
+            $inc: { totalInterviews: -1 },
+        });
+
+        return NextResponse.json(
+            { message: "Interview deleted successfully" },
+            { status: 200 }
+        );
+    } catch (error: any) {
+        if (error.name === "CastError" || error.kind === "ObjectId") {
+            return NextResponse.json({ error: "Invalid interview ID" }, { status: 400 });
+        }
+        console.error("Delete interview error:", error);
+        return NextResponse.json({ error: "Failed to delete interview" }, { status: 500 });
     }
 }

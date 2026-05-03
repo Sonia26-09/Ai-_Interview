@@ -1,36 +1,100 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { Search, Filter, Star, Users, Clock, Brain, Play, ChevronRight } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Search, Star, Users, Clock, Brain, Play, ChevronRight, Building2, Target, Code2, Mic, Loader2 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Badge from "@/components/ui/Badge";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { practiceTemplates } from "@/lib/mock-data";
+import { formatDuration } from "@/lib/utils";
 
-const techFilters = ["All", "Frontend", "Backend", "DSA", "AI/ML", "HR"];
 const diffFilters = ["All", "Easy", "Medium", "Hard"];
 
 const colorMap: Record<string, any> = {
     cyan: "cyan", purple: "purple", green: "green", orange: "orange", blue: "blue", pink: "pink"
 };
 
+interface DBInterview {
+    id: string;
+    title: string;
+    role: string;
+    company: string;
+    description: string;
+    rounds: { id: string; type: string; title: string; duration: number; difficulty: string; questionCount: number; isRequired: boolean; order: number }[];
+    status: string;
+    deadline: string | null;
+    applicants: number;
+    passingScore: number;
+    techStack: string[];
+    difficulty: string;
+    antiCheat: boolean;
+    createdAt: string;
+    recruiterName: string;
+}
+
 export default function StudentPracticePage() {
     const [search, setSearch] = useState("");
-    const [techFilter, setTechFilter] = useState("All");
     const [diffFilter, setDiffFilter] = useState("All");
+    const [dbInterviews, setDbInterviews] = useState<DBInterview[]>([]);
+    const [isLoadingDB, setIsLoadingDB] = useState(true);
+    const [userName, setUserName] = useState("Student");
 
-    const filtered = practiceTemplates.filter(t => {
+    useEffect(() => {
+        // Fetch user name
+        async function fetchUser() {
+            try {
+                const meRes = await fetch("/api/auth/me");
+                if (meRes.ok) {
+                    const meData = await meRes.json();
+                    setUserName(meData.user.name);
+                }
+            } catch {
+                const storedName = localStorage.getItem("userName");
+                if (storedName) setUserName(storedName);
+            }
+        }
+        fetchUser();
+
+        // Fetch recruiter-created interviews (public)
+        async function fetchDBInterviews() {
+            try {
+                const res = await fetch("/api/interviews?public=true");
+                if (res.ok) {
+                    const data = await res.json();
+                    setDbInterviews(data.interviews || []);
+                }
+            } catch (err) {
+                console.error("Failed to fetch interviews:", err);
+            } finally {
+                setIsLoadingDB(false);
+            }
+        }
+        fetchDBInterviews();
+    }, []);
+
+    const filteredTemplates = practiceTemplates.filter(t => {
         const matchSearch = t.title.toLowerCase().includes(search.toLowerCase()) ||
             t.description.toLowerCase().includes(search.toLowerCase());
         const matchDiff = diffFilter === "All" || t.difficulty === diffFilter;
         return matchSearch && matchDiff;
     });
 
+    const filteredDB = dbInterviews.filter(i => {
+        const matchSearch = i.title.toLowerCase().includes(search.toLowerCase()) ||
+            (i.description || "").toLowerCase().includes(search.toLowerCase()) ||
+            (i.role || "").toLowerCase().includes(search.toLowerCase());
+        const matchDiff = diffFilter === "All" || i.difficulty === diffFilter;
+        return matchSearch && matchDiff;
+    });
+
+    const roundIcons: Record<string, any> = { aptitude: Target, coding: Code2, hr: Mic };
+    const roundColors: Record<string, string> = { aptitude: "blue", coding: "cyan", hr: "purple" };
+
     return (
         <div className="min-h-screen">
-            <Navbar role="student" userName="Arjun Mehta" />
+            <Navbar role="student" userName={userName} />
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="mb-8">
                     <h1 className="text-2xl font-bold font-display">Practice Interviews</h1>
@@ -68,9 +132,121 @@ export default function StudentPracticePage() {
                     </div>
                 </div>
 
-                {/* Cards */}
+                {/* ═══════════════════════════════════════════════════════════════
+                    Company Interviews (from Database — recruiter created)
+                   ═══════════════════════════════════════════════════════════════ */}
+                {(isLoadingDB || filteredDB.length > 0) && (
+                    <div className="mb-10">
+                        <div className="flex items-center gap-3 mb-5">
+                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-neon-cyan/20 to-neon-purple/20 border border-white/10 flex items-center justify-center">
+                                <Building2 className="w-4 h-4 text-neon-cyan" />
+                            </div>
+                            <div>
+                                <h2 className="font-semibold text-text-primary">Company Interviews</h2>
+                                <p className="text-xs text-text-muted">Real interviews posted by recruiters</p>
+                            </div>
+                            {!isLoadingDB && (
+                                <Badge variant="cyan" size="sm" className="ml-auto">{filteredDB.length} available</Badge>
+                            )}
+                        </div>
+
+                        {isLoadingDB ? (
+                            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                                {[1, 2, 3].map(i => (
+                                    <div key={i} className="glass rounded-2xl border border-white/8 p-5 animate-pulse">
+                                        <div className="h-5 w-40 bg-white/5 rounded mb-3" />
+                                        <div className="h-4 w-full bg-white/5 rounded mb-2" />
+                                        <div className="h-3 w-32 bg-white/5 rounded" />
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                                {filteredDB.map((interview) => {
+                                    const totalDuration = interview.rounds.reduce((a, r) => a + r.duration, 0);
+                                    const totalQuestions = interview.rounds.reduce((a, r) => a + r.questionCount, 0);
+                                    return (
+                                        <Link key={interview.id} href={`/interview/${interview.id}`}>
+                                            <div className="glass rounded-2xl border border-white/8 p-5 hover:border-neon-cyan/30 hover:-translate-y-1 transition-all duration-300 flex flex-col group cursor-pointer h-full">
+                                                {/* Header */}
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <Badge variant={interview.difficulty === "Hard" ? "red" : interview.difficulty === "Medium" ? "yellow" : "green"} size="sm">
+                                                        {interview.difficulty}
+                                                    </Badge>
+                                                    <span className="text-xs text-text-muted flex items-center gap-1">
+                                                        <Building2 className="w-3 h-3" />
+                                                        {interview.company || interview.recruiterName}
+                                                    </span>
+                                                </div>
+
+                                                {/* Title */}
+                                                <h3 className="font-bold text-text-primary mb-1 group-hover:text-neon-cyan transition-colors">{interview.title}</h3>
+                                                {interview.role && (
+                                                    <p className="text-xs text-text-secondary mb-1">{interview.role}</p>
+                                                )}
+                                                <p className="text-xs text-text-muted leading-relaxed mb-4 flex-1 line-clamp-2">{interview.description}</p>
+
+                                                {/* Round Tags */}
+                                                <div className="flex flex-wrap gap-1 mb-3">
+                                                    {interview.rounds.map((round) => {
+                                                        const Icon = roundIcons[round.type] || Target;
+                                                        const color = roundColors[round.type] || "cyan";
+                                                        return (
+                                                            <span key={round.id} className={`text-xs px-2 py-0.5 rounded-md border bg-neon-${color}/10 border-neon-${color}/20 text-neon-${color} flex items-center gap-1`}>
+                                                                <Icon className="w-3 h-3" />
+                                                                {round.title}
+                                                            </span>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                {/* Tech Stack */}
+                                                {interview.techStack.length > 0 && (
+                                                    <div className="flex flex-wrap gap-1 mb-3">
+                                                        {interview.techStack.slice(0, 4).map(stack => (
+                                                            <span key={stack} className="text-xs px-2 py-0.5 glass rounded-md border border-white/10 text-text-muted">{stack}</span>
+                                                        ))}
+                                                        {interview.techStack.length > 4 && (
+                                                            <span className="text-xs px-2 py-0.5 glass rounded-md border border-white/10 text-text-muted">+{interview.techStack.length - 4}</span>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Stats */}
+                                                <div className="flex items-center gap-4 text-xs text-text-muted mb-4">
+                                                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatDuration(totalDuration)}</span>
+                                                    <span className="flex items-center gap-1"><Brain className="w-3 h-3" />{interview.rounds.length} rounds</span>
+                                                    <span className="flex items-center gap-1"><Target className="w-3 h-3" />{totalQuestions} Q</span>
+                                                </div>
+
+                                                {/* CTA */}
+                                                <Button variant="primary" size="md" className="w-full" leftIcon={<Play className="w-4 h-4" />}>
+                                                    Start Interview
+                                                </Button>
+                                            </div>
+                                        </Link>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ═══════════════════════════════════════════════════════════════
+                    Practice Templates (hardcoded/mock)
+                   ═══════════════════════════════════════════════════════════════ */}
+                <div className="flex items-center gap-3 mb-5">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-neon-purple/20 to-neon-cyan/20 border border-white/10 flex items-center justify-center">
+                        <Brain className="w-4 h-4 text-neon-purple" />
+                    </div>
+                    <div>
+                        <h2 className="font-semibold text-text-primary">Practice Templates</h2>
+                        <p className="text-xs text-text-muted">AI-powered practice interviews for self-improvement</p>
+                    </div>
+                </div>
+
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                    {filtered.map((t) => (
+                    {filteredTemplates.map((t) => (
                         <div key={t.id} className="glass rounded-2xl border border-white/8 p-5 hover:border-white/15 hover:-translate-y-1 transition-all duration-300 flex flex-col group">
                             {/* Header */}
                             <div className="flex items-center justify-between mb-4">

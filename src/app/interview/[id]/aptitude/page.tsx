@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
     Clock, ChevronLeft, ChevronRight, Brain, CheckCircle2,
     AlertTriangle, Flag, ArrowRight, ChevronDown, ChevronUp,
-    Lightbulb, XCircle, BookOpen
+    Lightbulb, XCircle, BookOpen, Loader2
 } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
@@ -16,15 +16,32 @@ import { formatTime } from "@/lib/utils";
 import { buildAptitudeResult, saveToStorage, STORAGE_KEYS } from "@/lib/ai-feedback";
 import type { QuestionFeedback } from "@/lib/types";
 
+interface AptitudeQuestion {
+    id: string;
+    type: string;
+    title: string;
+    description: string;
+    difficulty: string;
+    options: string[];
+    correctOption: number;
+    tags: string[];
+    points: number;
+}
+
 export default function AptitudeRoundPage() {
     const params = useParams();
+    const interviewId = params.id as string;
     const TOTAL_TIME = 30 * 60;
-    const questions = mockAptitudeQuestions;
+
+    // ── Dynamic questions from Gemini or fallback to mock ────────────
+    const [questions, setQuestions] = useState<AptitudeQuestion[]>([]);
+    const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     const [timeLeft, setTimeLeft] = useState(TOTAL_TIME);
     const [currentQ, setCurrentQ] = useState(0);
-    const [selected, setSelected] = useState<(number | null)[]>(new Array(questions.length).fill(null));
-    const [flagged, setFlagged] = useState<boolean[]>(new Array(questions.length).fill(false));
+    const [selected, setSelected] = useState<(number | null)[]>([]);
+    const [flagged, setFlagged] = useState<boolean[]>([]);
     const [submitted, setSubmitted] = useState(false);
     const [tabWarnings, setTabWarnings] = useState(0);
     const [showWarning, setShowWarning] = useState(false);
@@ -32,9 +49,62 @@ export default function AptitudeRoundPage() {
     const [expandedQ, setExpandedQ] = useState<number | null>(0);
     const [isGenerating, setIsGenerating] = useState(false);
 
+    // ── Fetch interview config and generate questions ─────────────────
+    useEffect(() => {
+        async function loadQuestions() {
+            try {
+                // 1. Try to fetch interview config from DB
+                const configRes = await fetch(`/api/interviews/${interviewId}?public=true`);
+                if (configRes.ok) {
+                    const configData = await configRes.json();
+                    const aptitudeRound = configData.interview?.rounds?.find(
+                        (r: any) => r.type === "aptitude"
+                    );
+
+                    if (aptitudeRound && aptitudeRound.questionCount) {
+                        const count = aptitudeRound.questionCount;
+                        const difficulty = aptitudeRound.difficulty || "Medium";
+
+                        // 2. Generate questions dynamically via Gemini
+                        const genRes = await fetch("/api/generate-questions", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                count,
+                                difficulty,
+                                roundType: "aptitude",
+                            }),
+                        });
+
+                        if (genRes.ok) {
+                            const genData = await genRes.json();
+                            if (genData.questions && genData.questions.length > 0) {
+                                setQuestions(genData.questions);
+                                setSelected(new Array(genData.questions.length).fill(null));
+                                setFlagged(new Array(genData.questions.length).fill(false));
+                                setIsLoadingQuestions(false);
+                                return;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to generate questions:", err);
+            }
+
+            // 3. Fallback to mock questions (for practice templates)
+            setQuestions(mockAptitudeQuestions as AptitudeQuestion[]);
+            setSelected(new Array(mockAptitudeQuestions.length).fill(null));
+            setFlagged(new Array(mockAptitudeQuestions.length).fill(false));
+            setIsLoadingQuestions(false);
+        }
+
+        loadQuestions();
+    }, [interviewId]);
+
     // Timer
     useEffect(() => {
-        if (submitted) return;
+        if (submitted || isLoadingQuestions) return;
         const timer = setInterval(() => {
             setTimeLeft(t => {
                 if (t <= 1) { handleSubmit(); return 0; }
@@ -43,7 +113,7 @@ export default function AptitudeRoundPage() {
         }, 1000);
         return () => clearInterval(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [submitted]);
+    }, [submitted, isLoadingQuestions]);
 
     // Anti-cheat
     useEffect(() => {
@@ -73,15 +143,52 @@ export default function AptitudeRoundPage() {
 
     const handleSubmit = async () => {
         setIsGenerating(true);
-        // Simulate AI processing
         await new Promise(r => setTimeout(r, 1800));
         const timeTaken = TOTAL_TIME - timeLeft;
-        const result = buildAptitudeResult(questions, selected, timeTaken);
+        const result = buildAptitudeResult(questions as any, selected, timeTaken);
         saveToStorage(STORAGE_KEYS.aptitude, result);
         setFeedbacks(result.feedbacks);
         setIsGenerating(false);
         setSubmitted(true);
     };
+
+    // ── Loading Screen ────────────────────────────────────────────────
+    if (isLoadingQuestions) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <Navbar role="student" userName="Student" />
+                <div className="text-center">
+                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-neon-purple to-neon-cyan flex items-center justify-center mx-auto mb-6 animate-pulse">
+                        <Brain className="w-10 h-10 text-background" />
+                    </div>
+                    <h2 className="text-2xl font-bold font-display mb-2">Generating Questions...</h2>
+                    <p className="text-text-muted text-sm">AI is preparing your aptitude questions</p>
+                    <div className="flex justify-center gap-1.5 mt-6">
+                        {[0, 1, 2].map(i => (
+                            <span key={i} className="w-2.5 h-2.5 rounded-full bg-neon-cyan animate-bounce"
+                                style={{ animationDelay: `${i * 150}ms` }} />
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (questions.length === 0) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <Navbar role="student" userName="Student" />
+                <div className="text-center">
+                    <Brain className="w-16 h-16 mx-auto mb-4 text-text-muted opacity-30" />
+                    <h2 className="text-xl font-bold mb-2">No Questions Available</h2>
+                    <p className="text-text-muted text-sm mb-4">Could not load questions for this round.</p>
+                    <Link href={`/interview/${interviewId}`}>
+                        <Button variant="primary">Go Back</Button>
+                    </Link>
+                </div>
+            </div>
+        );
+    }
 
     const answeredCount = selected.filter(s => s !== null).length;
     const flaggedCount = flagged.filter(Boolean).length;
@@ -93,11 +200,11 @@ export default function AptitudeRoundPage() {
         ? questions.reduce((acc, q, i) => acc + (selected[i] === q.correctOption ? q.points : 0), 0)
         : 0;
 
-    // ─── AI Generating Screen ─────────────────────────────────────────────────
+    // ── AI Generating Screen ──────────────────────────────────────────
     if (isGenerating) {
         return (
             <div className="min-h-screen flex items-center justify-center">
-                <Navbar role="student" userName="Siddhi Gupta" />
+                <Navbar role="student" userName="Student" />
                 <div className="text-center">
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-neon-purple to-neon-cyan flex items-center justify-center mx-auto mb-6 animate-pulse">
                         <Brain className="w-10 h-10 text-background" />
@@ -115,7 +222,7 @@ export default function AptitudeRoundPage() {
         );
     }
 
-    // ─── Submitted / Feedback Screen ─────────────────────────────────────────
+    // ── Submitted / Feedback Screen ──────────────────────────────────
     if (submitted) {
         const totalPoints = questions.reduce((a, q) => a + q.points, 0);
         const percent = Math.round((score / totalPoints) * 100);
@@ -123,7 +230,7 @@ export default function AptitudeRoundPage() {
 
         return (
             <div className="min-h-screen">
-                <Navbar role="student" userName="Siddhi Gupta" />
+                <Navbar role="student" userName="Student" />
                 <div className="max-w-3xl mx-auto px-4 py-8">
                     {/* Score Hero */}
                     <div className={`glass rounded-3xl border p-8 mb-6 text-center relative overflow-hidden ${percent >= 70 ? "border-neon-green/30 bg-neon-green/5" : "border-red-500/30 bg-red-500/5"}`}>
@@ -184,7 +291,6 @@ export default function AptitudeRoundPage() {
                                     <button
                                         className="w-full flex items-center gap-3 p-4 text-left"
                                         onClick={() => setExpandedQ(isExpanded ? null : i)}>
-                                        {/* Status icon */}
                                         <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${fb.isCorrect
                                             ? "bg-neon-green/15 border border-neon-green/30"
                                             : "bg-red-500/15 border border-red-500/30"
@@ -193,8 +299,6 @@ export default function AptitudeRoundPage() {
                                                 ? <CheckCircle2 className="w-4 h-4 text-neon-green" />
                                                 : <XCircle className="w-4 h-4 text-red-400" />}
                                         </div>
-
-                                        {/* Question number + preview */}
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 mb-0.5">
                                                 <span className="text-xs font-semibold text-text-muted">Q{i + 1}</span>
@@ -206,7 +310,6 @@ export default function AptitudeRoundPage() {
                                             </div>
                                             <p className="text-sm text-text-primary truncate pr-4">{q.description}</p>
                                         </div>
-
                                         {isExpanded
                                             ? <ChevronUp className="w-4 h-4 text-text-muted flex-shrink-0" />
                                             : <ChevronDown className="w-4 h-4 text-text-muted flex-shrink-0" />}
@@ -215,7 +318,6 @@ export default function AptitudeRoundPage() {
                                     {/* Expanded feedback */}
                                     {isExpanded && (
                                         <div className="px-4 pb-4 border-t border-white/8 pt-4 space-y-4">
-                                            {/* Options review */}
                                             <div>
                                                 <div className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">Answer Review</div>
                                                 <div className="space-y-2">
@@ -300,10 +402,10 @@ export default function AptitudeRoundPage() {
         );
     }
 
-    // ─── Active Test UI ───────────────────────────────────────────────────────
+    // ── Active Test UI ────────────────────────────────────────────────
     return (
         <div className="min-h-screen">
-            <Navbar role="student" userName="Siddhi Gupta" />
+            <Navbar role="student" userName="Student" />
 
             {showWarning && (
                 <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 bg-red-500/90 text-white rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 animate-slide-up">
