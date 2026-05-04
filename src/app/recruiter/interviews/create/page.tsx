@@ -4,14 +4,26 @@ import { useState } from "react";
 import Link from "next/link";
 import {
     ArrowLeft, ArrowRight, Plus, Trash2, GripVertical,
-    Clock, Brain, Code2, Mic, Settings, ChevronDown, Check, Sparkles
+    Clock, Brain, Code2, Settings, Check, Sparkles, CheckCircle
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
-import { Round, RoundType, Difficulty, TechStack } from "@/lib/types";
-import { generateId, getRoundTypeColor } from "@/lib/utils";
+import AptitudeQuestionForm, { type AptitudeQ } from "@/components/recruiter/AptitudeQuestionForm";
+import CodingQuestionForm, { type CodingQ } from "@/components/recruiter/CodingQuestionForm";
+import { Difficulty, TechStack } from "@/lib/types";
+import { generateId } from "@/lib/utils";
+
+interface RoundLocal {
+    id: string;
+    type: "aptitude" | "coding";
+    title: string;
+    duration: number;
+    difficulty: Difficulty;
+    isRequired: boolean;
+    order: number;
+}
 
 const TECH_STACKS: TechStack[] = [
     "JavaScript", "TypeScript", "Python", "Java", "C++",
@@ -19,42 +31,49 @@ const TECH_STACKS: TechStack[] = [
     "MongoDB", "PostgreSQL", "DSA", "System Design", "AI/ML", "DevOps"
 ];
 
-const ROUND_TEMPLATES: { type: RoundType; icon: any; title: string; desc: string; color: string }[] = [
+const ROUND_TEMPLATES: { type: "aptitude" | "coding"; icon: any; title: string; desc: string; color: string }[] = [
     { type: "aptitude", icon: Brain, title: "Aptitude Round", desc: "MCQ-based reasoning, logic & aptitude", color: "blue" },
     { type: "coding", icon: Code2, title: "Coding Round", desc: "DSA + tech stack coding challenges", color: "cyan" },
-    { type: "hr", icon: Mic, title: "HR Round", desc: "Behavioural & situational AI interview", color: "purple" },
 ];
 
-const steps = ["Basic Info", "Build Rounds", "Settings", "Review"];
+const steps = ["Basic Info", "Build Rounds", "Add Questions", "Settings", "Review"];
 
 export default function CreateInterviewPage() {
     const [currentStep, setCurrentStep] = useState(0);
-    const [rounds, setRounds] = useState<Round[]>([]);
+    const [rounds, setRounds] = useState<RoundLocal[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [form, setForm] = useState({
         title: "", role: "", description: "", deadline: "",
         difficulty: "Medium" as Difficulty, passingScore: 70,
         antiCheat: true, techStack: [] as TechStack[]
     });
 
-    const addRound = (type: RoundType) => {
+    // Questions keyed by round.id
+    const [aptitudeQuestions, setAptitudeQuestions] = useState<Record<string, AptitudeQ[]>>({});
+    const [codingQuestions, setCodingQuestions] = useState<Record<string, CodingQ[]>>({});
+
+    const addRound = (type: "aptitude" | "coding") => {
         const template = ROUND_TEMPLATES.find(t => t.type === type)!;
-        const newRound: Round = {
+        const newRound: RoundLocal = {
             id: generateId(),
             type,
             title: template.title,
             duration: type === "coding" ? 60 : 30,
             difficulty: "Medium",
-            questionCount: type === "aptitude" ? 25 : type === "coding" ? 3 : 6,
             isRequired: true,
             order: rounds.length + 1,
         };
         setRounds([...rounds, newRound]);
     };
 
-    const removeRound = (id: string) => setRounds(rounds.filter(r => r.id !== id));
+    const removeRound = (id: string) => {
+        setRounds(rounds.filter(r => r.id !== id));
+        const newApt = { ...aptitudeQuestions }; delete newApt[id]; setAptitudeQuestions(newApt);
+        const newCod = { ...codingQuestions }; delete newCod[id]; setCodingQuestions(newCod);
+    };
 
-    const updateRound = (id: string, updates: Partial<Round>) => {
+    const updateRound = (id: string, updates: Partial<RoundLocal>) => {
         setRounds(rounds.map(r => r.id === id ? { ...r, ...updates } : r));
     };
 
@@ -67,17 +86,50 @@ export default function CreateInterviewPage() {
         }));
     };
 
-    const [error, setError] = useState<string | null>(null);
+    const getTotalQuestions = () => {
+        let total = 0;
+        rounds.forEach(r => {
+            if (r.type === "aptitude") total += (aptitudeQuestions[r.id] || []).length;
+            if (r.type === "coding") total += (codingQuestions[r.id] || []).length;
+        });
+        return total;
+    };
 
     const handleSubmit = async () => {
-        if (!form.title.trim()) {
-            setError("Interview title is required.");
-            return;
-        }
+        if (!form.title.trim()) { setError("Interview title is required."); return; }
+        if (rounds.length === 0) { setError("Add at least one round."); return; }
+        if (getTotalQuestions() === 0) { setError("Add at least one question."); return; }
+
         setIsLoading(true);
         setError(null);
 
         try {
+            // Flatten all questions with roundId
+            const allQuestions: any[] = [];
+            rounds.forEach(r => {
+                if (r.type === "aptitude") {
+                    (aptitudeQuestions[r.id] || []).forEach((q, i) => {
+                        allQuestions.push({
+                            roundId: r.id, type: "aptitude", title: `Q${i + 1}`,
+                            description: q.description, options: q.options,
+                            correctOption: q.correctOption, points: q.points,
+                            difficulty: q.difficulty, order: i, tags: [],
+                        });
+                    });
+                }
+                if (r.type === "coding") {
+                    (codingQuestions[r.id] || []).forEach((q, i) => {
+                        allQuestions.push({
+                            roundId: r.id, type: "coding", title: q.title,
+                            description: q.description, functionName: q.functionName,
+                            starterCode: q.starterCode, testCases: q.testCases,
+                            points: q.points, difficulty: q.difficulty,
+                            order: i, tags: q.tags,
+                        });
+                    });
+                }
+            });
+
             const res = await fetch("/api/interviews", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -85,16 +137,16 @@ export default function CreateInterviewPage() {
                     title: form.title.trim(),
                     role: form.role.trim(),
                     description: form.description,
-                    rounds: rounds.map((r) => ({
-                        type: r.type,
-                        title: r.title,
-                        duration: r.duration,
+                    rounds: rounds.map(r => ({
+                        type: r.type, title: r.title, duration: r.duration,
                         difficulty: r.difficulty,
-                        questionCount: r.questionCount,
-                        techStack: r.techStack || [],
-                        isRequired: r.isRequired,
-                        order: r.order,
+                        questionCount: r.type === "aptitude"
+                            ? (aptitudeQuestions[r.id] || []).length
+                            : (codingQuestions[r.id] || []).length,
+                        techStack: [], isRequired: r.isRequired, order: r.order,
+                        frontendId: r.id,
                     })),
+                    questions: allQuestions,
                     difficulty: form.difficulty,
                     deadline: form.deadline || null,
                     passingScore: form.passingScore,
@@ -104,13 +156,7 @@ export default function CreateInterviewPage() {
             });
 
             const data = await res.json();
-
-            if (!res.ok) {
-                setError(data.error || "Failed to create interview.");
-                setIsLoading(false);
-                return;
-            }
-
+            if (!res.ok) { setError(data.error || "Failed to create interview."); setIsLoading(false); return; }
             window.location.href = "/recruiter/interviews";
         } catch (err) {
             console.error("Create interview error:", err);
@@ -121,7 +167,7 @@ export default function CreateInterviewPage() {
 
     return (
         <div className="min-h-screen">
-            <Navbar role="recruiter" userName="Sarah Chen" />
+            <Navbar role="recruiter" userName="Recruiter" />
 
             <main className="max-w-3xl mx-auto px-4 py-8">
                 {/* Breadcrumb */}
@@ -134,24 +180,20 @@ export default function CreateInterviewPage() {
                 </div>
 
                 <h1 className="text-2xl font-bold font-display mb-2">Create Interview</h1>
-                <p className="text-text-secondary text-sm mb-8">Build a custom multi-round interview powered by AI</p>
+                <p className="text-text-secondary text-sm mb-8">Build a custom multi-round interview with your own questions</p>
 
                 {/* Stepper */}
                 <div className="flex items-center gap-0 mb-10">
                     {steps.map((s, i) => (
                         <div key={s} className="flex items-center flex-1">
-                            <button
-                                onClick={() => i <= currentStep && setCurrentStep(i)}
-                                className={`flex items-center gap-2 group transition-all ${i <= currentStep ? "cursor-pointer" : "cursor-default"}`}
-                            >
+                            <button onClick={() => i <= currentStep && setCurrentStep(i)}
+                                className={`flex items-center gap-2 group transition-all ${i <= currentStep ? "cursor-pointer" : "cursor-default"}`}>
                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all ${i < currentStep ? "bg-neon-cyan text-background" :
-                                        i === currentStep ? "bg-gradient-to-br from-neon-cyan to-neon-purple text-background shadow-neon-cyan" :
-                                            "bg-surface-2 border border-border text-text-muted"
-                                    }`}>
+                                    i === currentStep ? "bg-gradient-to-br from-neon-cyan to-neon-purple text-background shadow-neon-cyan" :
+                                        "bg-surface-2 border border-border text-text-muted"}`}>
                                     {i < currentStep ? <Check className="w-4 h-4" /> : i + 1}
                                 </div>
-                                <span className={`hidden sm:block text-sm font-medium transition-colors ${i === currentStep ? "text-text-primary" : "text-text-muted"
-                                    }`}>{s}</span>
+                                <span className={`hidden sm:block text-sm font-medium transition-colors ${i === currentStep ? "text-text-primary" : "text-text-muted"}`}>{s}</span>
                             </button>
                             {i < steps.length - 1 && (
                                 <div className={`flex-1 h-px mx-3 transition-all ${i < currentStep ? "bg-neon-cyan/50" : "bg-border"}`} />
@@ -173,13 +215,9 @@ export default function CreateInterviewPage() {
                                 value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} />
                             <div>
                                 <label className="block text-sm font-medium text-text-secondary mb-1.5">Description</label>
-                                <textarea
-                                    rows={3}
-                                    placeholder="Describe what candidates should expect..."
-                                    value={form.description}
-                                    onChange={e => setForm({ ...form, description: e.target.value })}
-                                    className="w-full bg-surface-2 border border-border rounded-xl text-sm text-text-primary placeholder:text-text-muted px-4 py-2.5 focus:outline-none focus:border-neon-cyan/50 focus:ring-2 focus:ring-neon-cyan/10 resize-none"
-                                />
+                                <textarea rows={3} placeholder="Describe what candidates should expect..."
+                                    value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+                                    className="w-full bg-surface-2 border border-border rounded-xl text-sm text-text-primary placeholder:text-text-muted px-4 py-2.5 focus:outline-none focus:border-neon-cyan/50 focus:ring-2 focus:ring-neon-cyan/10 resize-none" />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-text-secondary mb-2">Overall Difficulty</label>
@@ -187,11 +225,10 @@ export default function CreateInterviewPage() {
                                     {(["Easy", "Medium", "Hard"] as Difficulty[]).map(d => (
                                         <button key={d} onClick={() => setForm({ ...form, difficulty: d })}
                                             className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all ${form.difficulty === d
-                                                    ? d === "Easy" ? "bg-neon-green/10 border-neon-green/40 text-neon-green"
-                                                        : d === "Medium" ? "bg-yellow-400/10 border-yellow-400/40 text-yellow-300"
-                                                            : "bg-red-400/10 border-red-400/40 text-red-400"
-                                                    : "glass border-white/10 text-text-muted hover:border-white/20"
-                                                }`}>{d}</button>
+                                                ? d === "Easy" ? "bg-neon-green/10 border-neon-green/40 text-neon-green"
+                                                    : d === "Medium" ? "bg-yellow-400/10 border-yellow-400/40 text-yellow-300"
+                                                        : "bg-red-400/10 border-red-400/40 text-red-400"
+                                                : "glass border-white/10 text-text-muted hover:border-white/20"}`}>{d}</button>
                                     ))}
                                 </div>
                             </div>
@@ -206,8 +243,7 @@ export default function CreateInterviewPage() {
                             <h2 className="font-semibold text-lg mb-1">Build Your Rounds</h2>
                             <p className="text-text-muted text-sm mb-5">Add rounds in the order candidates will take them</p>
 
-                            {/* Round Templates */}
-                            <div className="grid grid-cols-3 gap-3 mb-6">
+                            <div className="grid grid-cols-2 gap-3 mb-6">
                                 {ROUND_TEMPLATES.map((t) => {
                                     const Icon = t.icon;
                                     return (
@@ -221,7 +257,6 @@ export default function CreateInterviewPage() {
                                 })}
                             </div>
 
-                            {/* Added Rounds */}
                             {rounds.length === 0 ? (
                                 <div className="text-center py-8 text-text-muted border border-dashed border-white/10 rounded-xl">
                                     <Brain className="w-10 h-10 mx-auto mb-2 opacity-25" />
@@ -239,7 +274,7 @@ export default function CreateInterviewPage() {
                                                 <div className="flex-1 space-y-3">
                                                     <Input placeholder="Round title" value={round.title}
                                                         onChange={e => updateRound(round.id, { title: e.target.value })} />
-                                                    <div className="grid grid-cols-3 gap-2">
+                                                    <div className="grid grid-cols-2 gap-2">
                                                         <div>
                                                             <label className="text-xs text-text-muted mb-1 block">Duration (min)</label>
                                                             <input type="number" value={round.duration}
@@ -247,19 +282,11 @@ export default function CreateInterviewPage() {
                                                                 className="w-full bg-surface-2 border border-border rounded-lg text-sm text-text-primary px-3 py-2 focus:outline-none focus:border-neon-cyan/50" />
                                                         </div>
                                                         <div>
-                                                            <label className="text-xs text-text-muted mb-1 block">Questions</label>
-                                                            <input type="number" value={round.questionCount}
-                                                                onChange={e => updateRound(round.id, { questionCount: parseInt(e.target.value) })}
-                                                                className="w-full bg-surface-2 border border-border rounded-lg text-sm text-text-primary px-3 py-2 focus:outline-none focus:border-neon-cyan/50" />
-                                                        </div>
-                                                        <div>
                                                             <label className="text-xs text-text-muted mb-1 block">Difficulty</label>
                                                             <select value={round.difficulty}
                                                                 onChange={e => updateRound(round.id, { difficulty: e.target.value as Difficulty })}
                                                                 className="w-full bg-surface-2 border border-border rounded-lg text-sm text-text-primary px-3 py-2 focus:outline-none focus:border-neon-cyan/50">
-                                                                <option>Easy</option>
-                                                                <option>Medium</option>
-                                                                <option>Hard</option>
+                                                                <option>Easy</option><option>Medium</option><option>Hard</option>
                                                             </select>
                                                         </div>
                                                     </div>
@@ -276,11 +303,53 @@ export default function CreateInterviewPage() {
                         </div>
                     )}
 
-                    {/* Step 3: Settings */}
+                    {/* Step 3: Add Questions */}
                     {currentStep === 2 && (
+                        <div>
+                            <h2 className="font-semibold text-lg mb-1">Add Questions</h2>
+                            <p className="text-text-muted text-sm mb-5">Define questions for each round. Students will see exactly what you enter here.</p>
+
+                            {rounds.length === 0 ? (
+                                <div className="text-center py-8 text-text-muted">
+                                    <p className="text-sm">Go back and add rounds first.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    {rounds.map((round, i) => (
+                                        <div key={round.id}>
+                                            <div className="flex items-center gap-2 mb-3">
+                                                <Badge variant={round.type === "aptitude" ? "blue" : "cyan"} size="sm">
+                                                    Round {i + 1}: {round.type}
+                                                </Badge>
+                                                <span className="text-sm font-medium text-text-primary">{round.title}</span>
+                                            </div>
+
+                                            {round.type === "aptitude" && (
+                                                <AptitudeQuestionForm
+                                                    questions={aptitudeQuestions[round.id] || []}
+                                                    onChange={(qs) => setAptitudeQuestions({ ...aptitudeQuestions, [round.id]: qs })}
+                                                />
+                                            )}
+
+                                            {round.type === "coding" && (
+                                                <CodingQuestionForm
+                                                    questions={codingQuestions[round.id] || []}
+                                                    onChange={(qs) => setCodingQuestions({ ...codingQuestions, [round.id]: qs })}
+                                                />
+                                            )}
+
+                                            {i < rounds.length - 1 && <hr className="border-white/8 mt-6" />}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Step 4: Settings */}
+                    {currentStep === 3 && (
                         <div className="space-y-5">
                             <h2 className="font-semibold text-lg mb-1">Interview Settings</h2>
-
                             <div>
                                 <label className="text-sm font-medium text-text-secondary mb-2 block">Required Tech Stack</label>
                                 <div className="flex flex-wrap gap-2">
@@ -288,15 +357,13 @@ export default function CreateInterviewPage() {
                                         const selected = form.techStack.includes(stack);
                                         return (
                                             <button key={stack} onClick={() => toggleStack(stack)}
-                                                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${selected ? "bg-neon-cyan/10 border-neon-cyan/30 text-neon-cyan" : "glass border-white/10 text-text-muted hover:border-white/20"
-                                                    }`}>
+                                                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${selected ? "bg-neon-cyan/10 border-neon-cyan/30 text-neon-cyan" : "glass border-white/10 text-text-muted hover:border-white/20"}`}>
                                                 {selected && <Check className="w-3 h-3" />}{stack}
                                             </button>
                                         );
                                     })}
                                 </div>
                             </div>
-
                             <div>
                                 <label className="text-sm font-medium text-text-secondary mb-2 block">
                                     Passing Score: <span className="text-neon-cyan">{form.passingScore}%</span>
@@ -306,24 +373,21 @@ export default function CreateInterviewPage() {
                                     className="w-full accent-cyan-400" />
                                 <div className="flex justify-between text-xs text-text-muted mt-1"><span>40%</span><span>90%</span></div>
                             </div>
-
                             <div className="flex items-center justify-between p-4 glass rounded-xl border border-white/10">
                                 <div>
                                     <div className="text-sm font-medium text-text-primary">Anti-Cheat Monitoring</div>
                                     <div className="text-xs text-text-muted mt-0.5">Tab switch detection, focus monitoring</div>
                                 </div>
-                                <button
-                                    onClick={() => setForm({ ...form, antiCheat: !form.antiCheat })}
-                                    className={`w-11 h-6 rounded-full transition-all relative ${form.antiCheat ? "bg-neon-cyan" : "bg-white/10"}`}
-                                >
+                                <button onClick={() => setForm({ ...form, antiCheat: !form.antiCheat })}
+                                    className={`w-11 h-6 rounded-full transition-all relative ${form.antiCheat ? "bg-neon-cyan" : "bg-white/10"}`}>
                                     <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-all ${form.antiCheat ? "left-6" : "left-1"}`} />
                                 </button>
                             </div>
                         </div>
                     )}
 
-                    {/* Step 4: Review */}
-                    {currentStep === 3 && (
+                    {/* Step 5: Review */}
+                    {currentStep === 4 && (
                         <div>
                             <h2 className="font-semibold text-lg mb-4">Review & Publish</h2>
                             <div className="space-y-4">
@@ -337,16 +401,19 @@ export default function CreateInterviewPage() {
                                         <p className="text-sm text-text-muted">No rounds added</p>
                                     ) : (
                                         <div className="space-y-2">
-                                            {rounds.map((r, i) => (
-                                                <div key={r.id} className="flex items-center gap-2 text-sm">
-                                                    <span className="text-text-muted">{i + 1}.</span>
-                                                    <span>{r.title}</span>
-                                                    <Badge variant={r.type === "aptitude" ? "blue" : r.type === "coding" ? "cyan" : "purple"} size="sm">
-                                                        {r.type}
-                                                    </Badge>
-                                                    <span className="text-text-muted ml-auto">{r.duration}min</span>
-                                                </div>
-                                            ))}
+                                            {rounds.map((r, i) => {
+                                                const qCount = r.type === "aptitude"
+                                                    ? (aptitudeQuestions[r.id] || []).length
+                                                    : (codingQuestions[r.id] || []).length;
+                                                return (
+                                                    <div key={r.id} className="flex items-center gap-2 text-sm">
+                                                        <span className="text-text-muted">{i + 1}.</span>
+                                                        <span>{r.title}</span>
+                                                        <Badge variant={r.type === "aptitude" ? "blue" : "cyan"} size="sm">{r.type}</Badge>
+                                                        <span className="text-text-muted ml-auto">{qCount} questions · {r.duration}min</span>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>
@@ -360,9 +427,13 @@ export default function CreateInterviewPage() {
                                         <div className="font-semibold">{form.passingScore}%</div>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2 px-4 py-3 bg-neon-cyan/5 border border-neon-cyan/20 rounded-xl">
-                                    <Sparkles className="w-4 h-4 text-neon-cyan" />
-                                    <p className="text-xs text-neon-cyan">AI will auto-generate all questions after publishing.</p>
+                                <div className="p-4 glass rounded-xl border border-white/10">
+                                    <div className="text-xs text-text-muted mb-1">Total Questions</div>
+                                    <div className="font-semibold">{getTotalQuestions()}</div>
+                                </div>
+                                <div className="flex items-center gap-2 px-4 py-3 bg-neon-green/5 border border-neon-green/20 rounded-xl">
+                                    <CheckCircle className="w-4 h-4 text-neon-green" />
+                                    <p className="text-xs text-neon-green">All questions are recruiter-defined. Score will be calculated based on your answers.</p>
                                 </div>
                             </div>
                         </div>
@@ -372,8 +443,7 @@ export default function CreateInterviewPage() {
                 {/* Error Banner */}
                 {error && (
                     <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center gap-2">
-                        <span>⚠️</span>
-                        <span>{error}</span>
+                        <span>⚠️</span><span>{error}</span>
                     </div>
                 )}
 

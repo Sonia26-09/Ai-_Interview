@@ -354,10 +354,12 @@ export function generateCodingFeedback(
     };
 }
 
-export function buildCodingResult(feedbacks: CodingQuestionFeedback[]): CodingResult {
+export function buildCodingResult(feedbacks: CodingQuestionFeedback[], totalQuestions?: number): CodingResult {
+    // Each feedback.score is 0-100. Compute percentage based on total questions (including unattempted = 0).
+    const total = totalQuestions || feedbacks.length || 1;
     const overallScore =
         feedbacks.length > 0
-            ? feedbacks.reduce((a, f) => a + f.score, 0)
+            ? Math.round(feedbacks.reduce((a, f) => a + f.score, 0) / total)
             : 0;
     return { feedbacks, overallScore };
 }
@@ -485,11 +487,19 @@ export function generateFullReport(
         studyPlan.push("Do one full mock interview per week to practice time management across all rounds");
     }
 
+    // Technical score: only average rounds that exist
+    const techScoreParts: number[] = [];
+    if (aptitude) techScoreParts.push(aptitudeScore);
+    if (coding) techScoreParts.push(codingScore);
+    const technicalScore = techScoreParts.length > 0
+        ? Math.round(techScoreParts.reduce((a, b) => a + b, 0) / techScoreParts.length)
+        : undefined;
+
     const topicBreakdown = [
-        { topic: "Aptitude", score: aptitudeScore, trend: aptitudeScore >= 70 ? "up" as const : "down" as const },
-        { topic: "Coding", score: codingScore, trend: codingScore >= 70 ? "up" as const : "stable" as const },
-        { topic: "HR / Communication", score: hrScore, trend: hrScore >= 70 ? "up" as const : "stable" as const },
-        { topic: "Problem Solving", score: Math.round((aptitudeScore + codingScore) / 2), trend: "up" as const },
+        ...(aptitude ? [{ topic: "Aptitude", score: aptitudeScore, trend: aptitudeScore >= 70 ? "up" as const : "down" as const }] : []),
+        ...(coding ? [{ topic: "Coding", score: codingScore, trend: codingScore >= 70 ? "up" as const : "stable" as const }] : []),
+        ...(hr ? [{ topic: "HR / Communication", score: hrScore, trend: hrScore >= 70 ? "up" as const : "stable" as const }] : []),
+        { topic: "Problem Solving", score: technicalScore ?? overallScore, trend: "up" as const },
         { topic: "Speed & Accuracy", score: Math.min(100, overallScore + 5), trend: "stable" as const },
     ];
 
@@ -516,7 +526,7 @@ export function generateFullReport(
         improvements: improvements.length ? improvements : ["Keep practicing consistently to build stronger fundamentals"],
         communicationScore: hrScore || undefined,
         confidenceScore: hr?.confidenceScore || undefined,
-        technicalScore: Math.round((aptitudeScore + codingScore) / 2) || undefined,
+        technicalScore,
         recommendation,
         detailedReport,
         studyPlan,

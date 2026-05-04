@@ -64,48 +64,41 @@ export default function CodingRoundPage() {
     // ── Dynamic questions from Gemini or fallback to mock ────────────
     const [codingQuestions, setCodingQuestions] = useState(mockCodingQuestions);
     const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
+    const [interviewRounds, setInterviewRounds] = useState<string[]>(["aptitude", "coding", "hr"]);
+
+    // Fetch interview config to know available rounds
+    useEffect(() => {
+        async function fetchRounds() {
+            try {
+                const res = await fetch(`/api/interviews/${interviewId}?public=true`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const roundTypes = (data.interview?.rounds || []).map((r: any) => r.type);
+                    if (roundTypes.length > 0) setInterviewRounds(roundTypes);
+                }
+            } catch {}
+        }
+        fetchRounds();
+    }, [interviewId]);
 
     useEffect(() => {
         async function loadQuestions() {
             try {
-                // 1. Fetch interview config from DB
-                const configRes = await fetch(`/api/interviews/${interviewId}?public=true`);
-                if (configRes.ok) {
-                    const configData = await configRes.json();
-                    const codingRound = configData.interview?.rounds?.find(
-                        (r: any) => r.type === "coding"
-                    );
-
-                    if (codingRound && codingRound.questionCount) {
-                        const count = codingRound.questionCount;
-                        const difficulty = codingRound.difficulty || "Medium";
-
-                        // 2. Generate questions dynamically via Gemini
-                        const genRes = await fetch("/api/generate-questions", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                count,
-                                difficulty,
-                                roundType: "coding",
-                            }),
-                        });
-
-                        if (genRes.ok) {
-                            const genData = await genRes.json();
-                            if (genData.questions && genData.questions.length > 0) {
-                                setCodingQuestions(genData.questions);
-                                setIsLoadingQuestions(false);
-                                return;
-                            }
-                        }
+                // 1. Fetch recruiter-defined coding questions from DB
+                const questionsRes = await fetch(`/api/interviews/${interviewId}/questions?roundType=coding`);
+                if (questionsRes.ok) {
+                    const questionsData = await questionsRes.json();
+                    if (questionsData.questions && questionsData.questions.length > 0) {
+                        setCodingQuestions(questionsData.questions);
+                        setIsLoadingQuestions(false);
+                        return;
                     }
                 }
             } catch (err) {
-                console.error("Failed to generate coding questions:", err);
+                console.error("Failed to fetch recruiter coding questions:", err);
             }
 
-            // 3. Fallback to mock questions
+            // 2. Fallback to mock questions (for practice templates)
             setCodingQuestions(mockCodingQuestions);
             setIsLoadingQuestions(false);
         }
@@ -117,6 +110,7 @@ export default function CodingRoundPage() {
     const [code, setCode] = useState(typeof codingQuestions[0]?.starterCode === 'object' ? codingQuestions[0].starterCode.javascript : codingQuestions[0]?.starterCode || "");
     const [activeTab, setActiveTab] = useState<"problem" | "hints" | "ai">("problem");
     const [testResults, setTestResults] = useState<null | { passed: number; total: number; results: boolean[]; isSubmitResult: boolean; compileError?: boolean; runtimeError?: boolean; errorMessage?: string }>(null);
+    const [actualOutputs, setActualOutputs] = useState<Record<number, string>>({});
     const [isRunning, setIsRunning] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
@@ -150,6 +144,27 @@ export default function CodingRoundPage() {
         return false;
     };
 
+    // Detect if test cases are LeetCode-style (with argsCpp/inputCpp) or
+    // HackerRank-style (stdin/stdout only). Recruiter-defined questions use
+    // stdin/stdout style — they should NOT be wrapped in a Solution class.
+    const isLeetCodeStyle = (tcs: any[]): boolean => {
+        if (!tcs || tcs.length === 0) return false;
+        const first = tcs[0];
+        return !!(first.argsCpp || first.inputCpp || first.argsJava || first.argsPython || first.argsJs);
+    };
+
+    // Normalize output for comparison: handles \r\n vs \n, trims lines,
+    // removes trailing empty lines, collapses extra whitespace within lines
+    const normalizeOutput = (s: string): string => {
+        return s
+            .replace(/\r\n/g, '\n')   // Normalize line endings
+            .split('\n')               // Split into lines
+            .map(l => l.trim())        // Trim each line
+            .join('\n')                // Rejoin
+            .replace(/\n+$/g, '')      // Remove trailing empty lines
+            .trim();                   // Final trim
+    };
+
     const runCode = async () => {
         if (!code.trim()) {
             toast.error("Please write some code first");
@@ -169,15 +184,25 @@ export default function CodingRoundPage() {
         }, 15000);
 
         try {
+            const useLeetCode = isLeetCodeStyle(q.testCases || []);
+
+            // For HackerRank-style (recruiter-defined): run raw with stdin
+            // For LeetCode-style (mock data): wrap with Solution class
+            const execBody: any = { code, language };
+            if (useLeetCode) {
+                execBody.functionName = q.functionName;
+                execBody.testCases = q.testCases;
+                execBody.stdin = stdinInput;
+            } else {
+                // Use stdin from user input, or from first visible test case
+                const firstVisible = q.testCases?.find((tc: any) => !tc.isHidden);
+                execBody.stdin = stdinInput || (firstVisible ? firstVisible.input : '');
+            }
+
             const res = await fetch("/api/execute", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    code, language,
-                    stdin: stdinInput,
-                    functionName: q.functionName,
-                    testCases: q.testCases,
-                }),
+                body: JSON.stringify(execBody),
                 signal: controller.signal,
             });
             clearTimeout(clientTimeout);
@@ -225,40 +250,78 @@ export default function CodingRoundPage() {
 
         setIsSubmitting(true);
         try {
-            // ── Use the REAL compiler (/api/execute) for test evaluation ──
-            // This is the same endpoint the Run button uses — it actually compiles
-            // and runs the code via OnlineCompiler.io, giving reliable results.
-            // The old /api/evaluate used Gemini to *simulate* C++ execution which
-            // was unreliable and incorrectly failed correct code.
-            const res = await fetch("/api/execute", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    code,
-                    language,
-                    functionName: q.functionName,
-                    testCases: q.testCases || [],
-                }),
-            });
-            const data = await res.json();
-
+            const useLeetCode = isLeetCodeStyle(q.testCases || []);
             const totalTests = q.testCases?.length || 3;
 
-            // ── Extract test results from real compiler output ──
             let passed = 0;
             let testResultsBool: boolean[] = (q.testCases || []).map(() => false);
-            let hasCompileError = data.status === 'compile_error';
-            let hasRuntimeError = data.status === 'runtime_error';
-            let errorMessage: string | null = data.compile_error || data.stderr || data.error || null;
+            let hasCompileError = false;
+            let hasRuntimeError = false;
+            let errorMessage: string | null = null;
 
-            if (data.testResults) {
-                // Real compiler returned parsed test results
-                passed = data.testResults.passed || 0;
-                testResultsBool = data.testResults.results.map((r: any) => r.passed);
-            } else if (data.status === 'success' && !data.compile_error && !data.stderr) {
-                // No test results parsed but execution succeeded — fallback
-                // This shouldn't happen in LeetCode mode, but handle gracefully
-                passed = 0;
+            if (useLeetCode) {
+                // ── LeetCode-style: use existing wrapper (for mock/practice questions) ──
+                const res = await fetch("/api/execute", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        code, language,
+                        functionName: q.functionName,
+                        testCases: q.testCases || [],
+                    }),
+                });
+                const data = await res.json();
+
+                hasCompileError = data.status === 'compile_error';
+                hasRuntimeError = data.status === 'runtime_error';
+                errorMessage = data.compile_error || data.stderr || data.error || null;
+
+                if (data.testResults) {
+                    passed = data.testResults.passed || 0;
+                    testResultsBool = data.testResults.results.map((r: any) => r.passed);
+                }
+            } else {
+                // ── HackerRank-style: run each test case via stdin/stdout ──
+                const outputs: Record<number, string> = {};
+                for (let i = 0; i < (q.testCases || []).length; i++) {
+                    const tc = q.testCases![i];
+                    try {
+                        const res = await fetch("/api/execute", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                code, language,
+                                stdin: tc.input || '',
+                            }),
+                        });
+                        const data = await res.json();
+
+                        if (data.status === 'compile_error') {
+                            hasCompileError = true;
+                            errorMessage = data.compile_error || data.error || null;
+                            break; // No point running more tests
+                        }
+                        if (data.status === 'runtime_error') {
+                            hasRuntimeError = true;
+                            errorMessage = data.stderr || data.error || null;
+                            outputs[i] = `ERROR: ${data.stderr || data.error || 'Runtime error'}`;
+                            testResultsBool[i] = false;
+                            continue;
+                        }
+
+                        // Compare stdout with expected output (normalized)
+                        const actual = normalizeOutput(data.stdout || '');
+                        const expected = normalizeOutput(tc.expectedOutput || '');
+                        outputs[i] = actual; // Store actual output for display
+                        if (actual === expected) {
+                            testResultsBool[i] = true;
+                            passed++;
+                        }
+                    } catch {
+                        testResultsBool[i] = false;
+                    }
+                }
+                setActualOutputs(outputs);
             }
 
             // ── Call the AI reviewer for rich feedback ──
@@ -281,10 +344,16 @@ export default function CodingRoundPage() {
                 });
                 const reviewData = await reviewRes.json();
                 if (reviewRes.ok && reviewData.score !== undefined) {
+                    // For HackerRank-style: score = test pass rate, AI review for feedback only
+                    // For LeetCode-style: use AI reviewer score as-is
+                    const finalScore = useLeetCode
+                        ? reviewData.score
+                        : Math.round((passed / Math.max(totalTests, 1)) * 100);
+
                     feedback = {
                         questionId: q.id,
                         code,
-                        score: reviewData.score,
+                        score: finalScore,
                         timeComplexity: reviewData.timeComplexity || "Unknown",
                         spaceComplexity: reviewData.spaceComplexity || "Unknown",
                         whatYouDidWell: reviewData.whatYouDidWell || [],
@@ -293,12 +362,16 @@ export default function CodingRoundPage() {
                         errors: reviewData.errors || [],
                     };
                 } else {
-                    // Fallback to static feedback
                     feedback = generateCodingFeedback(q, code, passed, totalTests, false);
+                    if (!useLeetCode) {
+                        feedback.score = Math.round((passed / Math.max(totalTests, 1)) * 100);
+                    }
                 }
             } catch {
-                // Fallback to static feedback if review API fails
                 feedback = generateCodingFeedback(q, code, passed, totalTests, false);
+                if (!useLeetCode) {
+                    feedback.score = Math.round((passed / Math.max(totalTests, 1)) * 100);
+                }
             }
 
             setAllFeedbacks([...allFeedbacks.filter(f => f.questionId !== q.id), feedback]);
@@ -334,14 +407,17 @@ export default function CodingRoundPage() {
     };
 
     const handleFinishRound = () => {
-        const result = buildCodingResult(allFeedbacks);
+        const result = buildCodingResult(allFeedbacks, codingQuestions.length);
         saveToStorage(STORAGE_KEYS.coding, result);
         setSubmitted(true);
     };
 
     const codingScore = allFeedbacks.length > 0
-        ? allFeedbacks.reduce((a, f) => a + f.score, 0)
+        ? Math.round(allFeedbacks.reduce((a, f) => a + f.score, 0) / codingQuestions.length)
         : 0;
+
+    // Raw total for display detail
+    const codingRawTotal = allFeedbacks.reduce((a, f) => a + f.score, 0);
 
     // ── Loading Screen ────────────────────────────────────────────────
     if (isLoadingQuestions) {
@@ -352,8 +428,8 @@ export default function CodingRoundPage() {
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-neon-cyan to-neon-green flex items-center justify-center mx-auto mb-6 animate-pulse">
                         <Brain className="w-10 h-10 text-background" />
                     </div>
-                    <h2 className="text-2xl font-bold font-display mb-2">Generating Coding Problems...</h2>
-                    <p className="text-text-muted text-sm">AI is preparing your coding challenges</p>
+                    <h2 className="text-2xl font-bold font-display mb-2">Loading Coding Problems...</h2>
+                    <p className="text-text-muted text-sm">Preparing your coding challenges</p>
                     <div className="flex justify-center gap-1.5 mt-6">
                         {[0, 1, 2].map(i => (
                             <span key={i} className="w-2.5 h-2.5 rounded-full bg-neon-cyan animate-bounce"
@@ -374,12 +450,12 @@ export default function CodingRoundPage() {
                         <CheckCircle2 className="w-10 h-10 text-neon-green" />
                     </div>
                     <h1 className="text-3xl font-bold font-display mb-2">Coding Round Done!</h1>
-                    <p className="text-text-muted mb-2">{codingQuestions.length} problems attempted</p>
+                    <p className="text-text-muted mb-2">{allFeedbacks.length} problems attempted</p>
 
                     {/* Overall coding score */}
                     <div className="inline-flex flex-col items-center px-8 py-4 mb-6 rounded-2xl bg-gradient-to-br from-neon-green/10 to-neon-cyan/10 border border-neon-green/30">
-                        <div className="text-5xl font-bold text-neon-green font-display">{codingScore}</div>
-                        <div className="text-xs text-text-muted mt-1 uppercase tracking-wider">Overall Coding Score / {codingQuestions.length * 100}</div>
+                        <div className="text-5xl font-bold text-neon-green font-display">{codingScore}%</div>
+                        <div className="text-xs text-text-muted mt-1 uppercase tracking-wider">Overall Coding Score ({codingRawTotal} / {codingQuestions.length * 100})</div>
                         <div className="flex gap-4 mt-3">
                             {allFeedbacks.map((f, i) => (
                                 <div key={f.questionId} className="text-center">
@@ -391,12 +467,20 @@ export default function CodingRoundPage() {
                     </div>
 
                     <div className="flex gap-3 justify-center">
-                        <Link href={`/interview/${params.id}/hr`}>
-                            <Button variant="primary" rightIcon={<ArrowRight className="w-4 h-4" />}>Continue to HR Round</Button>
-                        </Link>
-                        <Link href={`/interview/${params.id}/results`}>
-                            <Button variant="secondary">Skip to Results</Button>
-                        </Link>
+                        {interviewRounds.includes('hr') ? (
+                            <>
+                                <Link href={`/interview/${params.id}/hr`}>
+                                    <Button variant="primary" rightIcon={<ArrowRight className="w-4 h-4" />}>Continue to HR Round</Button>
+                                </Link>
+                                <Link href={`/interview/${params.id}/results`}>
+                                    <Button variant="secondary">Skip to Results</Button>
+                                </Link>
+                            </>
+                        ) : (
+                            <Link href={`/interview/${params.id}/results`}>
+                                <Button variant="primary" rightIcon={<ArrowRight className="w-4 h-4" />}>View Results</Button>
+                            </Link>
+                        )}
                     </div>
                 </div>
             </div>
@@ -869,7 +953,13 @@ export default function CodingRoundPage() {
                                                             <span className="text-text-secondary">
                                                                 Test {i + 1}{isHidden ? ' (hidden)' : ''}: {notEvaluated ? 'Not Evaluated' : passed ? 'Passed ✓' : 'Failed ✗'}
                                                             </span>
-                                                            {!isHidden && !passed && (
+                                                            {!isHidden && !passed && testResults.isSubmitResult && actualOutputs[i] !== undefined && (
+                                                                <div className="ml-auto text-right text-xs">
+                                                                    <div className="text-red-400">Expected: <span className="font-mono">{tc.expectedOutput}</span></div>
+                                                                    <div className="text-yellow-400">Got: <span className="font-mono">{actualOutputs[i]}</span></div>
+                                                                </div>
+                                                            )}
+                                                            {!isHidden && !passed && !(testResults.isSubmitResult && actualOutputs[i] !== undefined) && (
                                                                 <span className="ml-auto text-text-muted">Expected: {tc.expectedOutput}</span>
                                                             )}
                                                         </div>

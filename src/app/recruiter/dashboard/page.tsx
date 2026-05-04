@@ -1,19 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useMemo, lazy, Suspense, memo } from "react";
+import { useState, useEffect, useMemo, memo } from "react";
 import {
     BarChart3, Users, CheckCircle, Clock, TrendingUp, Plus,
     ArrowRight, Brain, Target, ChevronRight, Zap, MoreVertical,
-    Building2, Calendar, Star
+    Building2, Calendar, Star, UserCheck, UserX
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import {
     AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
-    ResponsiveContainer, CartesianGrid
+    ResponsiveContainer, CartesianGrid, Cell
 } from "recharts";
+
+const SCORE_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4"];
 
 const CustomTooltip = memo(({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -28,24 +30,22 @@ const CustomTooltip = memo(({ active, payload, label }: any) => {
 });
 CustomTooltip.displayName = "CustomTooltip";
 
-// ─── Zero-state analytics ─────────────────────────────────────────
-const EMPTY_ANALYTICS = {
-    totalApplicants: 0,
-    completionRate: 0,
-    averageScore: 0,
-    passRate: 0,
-    topTechStacks: [] as { name: string; count: number }[],
-    scoreDistribution: [
-        { range: "0-20", count: 0 }, { range: "20-40", count: 0 },
-        { range: "40-60", count: 0 }, { range: "60-80", count: 0 },
-        { range: "80-100", count: 0 },
-    ],
-    weeklyApplications: [
-        { day: "Mon", count: 0 }, { day: "Tue", count: 0 }, { day: "Wed", count: 0 },
-        { day: "Thu", count: 0 }, { day: "Fri", count: 0 }, { day: "Sat", count: 0 },
-        { day: "Sun", count: 0 },
-    ],
-};
+interface AnalyticsData {
+    totalApplicants: number;
+    totalInterviews: number;
+    averageScore: number;
+    passRate: number;
+    selectedCount: number;
+    rejectedCount: number;
+    scoreDistribution: { range: string; count: number }[];
+    weeklyApplications: { day: string; count: number }[];
+    perInterview: {
+        id: string; title: string; status: string; rounds: number;
+        passingScore: number; totalApplicants: number; averageScore: number;
+        selected: number; rejected: number; createdAt: string;
+    }[];
+    topTechStacks: { name: string; count: number }[];
+}
 
 function DashboardSkeleton() {
     return (
@@ -68,15 +68,23 @@ function DashboardSkeleton() {
 export default function RecruiterDashboard() {
     const [userName, setUserName] = useState("Recruiter");
     const [isLoading, setIsLoading] = useState(true);
+    const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
 
     useEffect(() => {
         let cancelled = false;
-        async function fetchUser() {
+        async function fetchData() {
             try {
-                const res = await fetch("/api/auth/me");
-                if (res.ok) {
-                    const data = await res.json();
+                const [meRes, analyticsRes] = await Promise.all([
+                    fetch("/api/auth/me"),
+                    fetch("/api/recruiter/analytics"),
+                ]);
+                if (meRes.ok) {
+                    const data = await meRes.json();
                     if (!cancelled) setUserName(data.user.name);
+                }
+                if (analyticsRes.ok) {
+                    const data = await analyticsRes.json();
+                    if (!cancelled) setAnalytics(data);
                 }
             } catch {
                 const storedName = localStorage.getItem("userName");
@@ -85,19 +93,36 @@ export default function RecruiterDashboard() {
                 if (!cancelled) setIsLoading(false);
             }
         }
-        fetchUser();
+        fetchData();
         return () => { cancelled = true; };
     }, []);
 
-    // Use zero-state analytics for now — real data comes from future analytics API
-    const analytics = EMPTY_ANALYTICS;
+    const hasData = analytics && analytics.totalApplicants > 0;
+    const hasInterviews = analytics && analytics.totalInterviews > 0;
+    const activeInterviews = analytics?.perInterview.filter(iv => iv.status === "active").slice(0, 4) || [];
 
     const statCards = useMemo(() => [
-        { label: "Total Applicants", value: analytics.totalApplicants > 0 ? analytics.totalApplicants.toLocaleString() : "—", change: "", icon: Users, color: "cyan", trend: "up" },
-        { label: "Completion Rate", value: analytics.completionRate > 0 ? `${analytics.completionRate}%` : "—", change: "", icon: CheckCircle, color: "green", trend: "up" },
-        { label: "Average Score", value: analytics.averageScore > 0 ? `${analytics.averageScore}%` : "—", change: "", icon: Target, color: "purple", trend: "up" },
-        { label: "Pass Rate", value: analytics.passRate > 0 ? `${analytics.passRate}%` : "—", change: "", icon: TrendingUp, color: "orange", trend: "up" },
-    ], [analytics]);
+        {
+            label: "Total Applicants",
+            value: analytics?.totalApplicants ? analytics.totalApplicants.toLocaleString() : "—",
+            icon: Users, color: "cyan",
+        },
+        {
+            label: "Completion Rate",
+            value: hasData ? `${analytics!.passRate}%` : "—",
+            icon: CheckCircle, color: "green",
+        },
+        {
+            label: "Average Score",
+            value: analytics?.averageScore ? `${analytics.averageScore}%` : "—",
+            icon: Target, color: "purple",
+        },
+        {
+            label: "Pass Rate",
+            value: hasData ? `${analytics!.passRate}%` : "—",
+            icon: TrendingUp, color: "orange",
+        },
+    ], [analytics, hasData]);
 
     return (
         <div className="min-h-screen">
@@ -129,11 +154,6 @@ export default function RecruiterDashboard() {
                                             <div className={`w-9 h-9 rounded-xl bg-neon-${stat.color}/10 border border-neon-${stat.color}/20 flex items-center justify-center`}>
                                                 <Icon className={`w-4 h-4 text-neon-${stat.color}`} />
                                             </div>
-                                            {stat.change && (
-                                                <Badge variant={stat.trend === "up" ? "green" : "red"} size="sm">
-                                                    {stat.change}
-                                                </Badge>
-                                            )}
                                         </div>
                                         <div className="text-2xl font-bold font-display text-text-primary">{stat.value}</div>
                                         <div className="text-xs text-text-muted mt-0.5">{stat.label}</div>
@@ -152,26 +172,63 @@ export default function RecruiterDashboard() {
                                     </div>
                                     <Badge variant="cyan">This Week</Badge>
                                 </div>
-                                <div className="h-[180px] flex items-center justify-center text-text-muted text-sm">
-                                    <div className="text-center">
-                                        <p className="mb-1">No application data yet</p>
-                                        <p className="text-xs text-text-muted/60">Create your first interview to start tracking applications</p>
+                                {hasData ? (
+                                    <ResponsiveContainer width="100%" height={180}>
+                                        <AreaChart data={analytics!.weeklyApplications}>
+                                            <defs>
+                                                <linearGradient id="weeklyGrad" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="0%" stopColor="#00f5ff" stopOpacity={0.3} />
+                                                    <stop offset="100%" stopColor="#00f5ff" stopOpacity={0} />
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                                            <XAxis dataKey="day" tick={{ fill: "#475569", fontSize: 11 }} axisLine={false} tickLine={false} />
+                                            <YAxis tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Area type="monotone" dataKey="count" stroke="#00f5ff" fill="url(#weeklyGrad)" strokeWidth={2} />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <div className="h-[180px] flex items-center justify-center text-text-muted text-sm">
+                                        <div className="text-center">
+                                            <p className="mb-1">No application data yet</p>
+                                            <p className="text-xs text-text-muted/60">Create your first interview to start tracking applications</p>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
 
                             {/* Score Distribution */}
                             <div className="glass rounded-2xl border border-white/8 p-6">
                                 <h2 className="font-semibold text-text-primary mb-1">Score Distribution</h2>
                                 <p className="text-xs text-text-muted mb-5">All-time results</p>
-                                <div className="h-[180px] flex items-center justify-center text-text-muted text-sm">
-                                    <p className="text-xs text-text-muted/60">Scores will appear after candidates complete interviews</p>
-                                </div>
+                                {hasData ? (
+                                    <ResponsiveContainer width="100%" height={180}>
+                                        <BarChart data={analytics!.scoreDistribution} barSize={28}>
+                                            <XAxis dataKey="range" tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+                                            <YAxis tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                                            <Tooltip
+                                                contentStyle={{ background: "#0f1117", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12 }}
+                                                labelStyle={{ color: "#e2e8f0" }}
+                                                itemStyle={{ color: "#94a3b8" }}
+                                            />
+                                            <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+                                                {analytics!.scoreDistribution.map((_, i) => (
+                                                    <Cell key={i} fill={SCORE_COLORS[i]} fillOpacity={0.8} />
+                                                ))}
+                                            </Bar>
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <div className="h-[180px] flex items-center justify-center text-text-muted text-sm">
+                                        <p className="text-xs text-text-muted/60">Scores will appear after candidates complete interviews</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
                         <div className="grid lg:grid-cols-3 gap-6">
-                            {/* Active Interviews — empty state */}
+                            {/* Active Interviews */}
                             <div className="lg:col-span-2 glass rounded-2xl border border-white/8 p-6">
                                 <div className="flex items-center justify-between mb-5">
                                     <h2 className="font-semibold text-text-primary">Active Interviews</h2>
@@ -179,23 +236,68 @@ export default function RecruiterDashboard() {
                                         View all <ChevronRight className="w-3 h-3" />
                                     </Link>
                                 </div>
-                                <div className="text-center py-12 text-text-muted">
-                                    <Brain className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                                    <p className="text-sm">No interviews yet</p>
-                                    <Link href="/recruiter/interviews/create">
-                                        <Button variant="primary" size="sm" className="mt-4" leftIcon={<Plus className="w-3.5 h-3.5" />}>
-                                            Create your first interview
-                                        </Button>
-                                    </Link>
-                                </div>
+                                {activeInterviews.length > 0 ? (
+                                    <div className="space-y-3">
+                                        {activeInterviews.map(iv => (
+                                            <Link key={iv.id} href={`/recruiter/interviews/${iv.id}`} className="flex items-center gap-4 p-3 rounded-xl border border-white/8 hover:border-white/15 hover:bg-white/3 transition-all">
+                                                <div className="w-9 h-9 rounded-lg bg-neon-purple/10 border border-neon-purple/20 flex items-center justify-center flex-shrink-0">
+                                                    <Brain className="w-4 h-4 text-neon-purple" />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 mb-0.5">
+                                                        <span className="text-sm font-medium text-text-primary truncate">{iv.title}</span>
+                                                        <Badge variant="green" size="sm" dot>Active</Badge>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 text-xs text-text-muted">
+                                                        <span className="flex items-center gap-1"><Users className="w-3 h-3" />{iv.totalApplicants} applicants</span>
+                                                        <span className="flex items-center gap-1"><Target className="w-3 h-3" />{iv.averageScore > 0 ? `${iv.averageScore}%` : "—"} avg</span>
+                                                        <span className="flex items-center gap-1 text-neon-green"><UserCheck className="w-3 h-3" />{iv.selected}</span>
+                                                        <span className="flex items-center gap-1 text-red-400"><UserX className="w-3 h-3" />{iv.rejected}</span>
+                                                    </div>
+                                                </div>
+                                                <ChevronRight className="w-4 h-4 text-text-muted flex-shrink-0" />
+                                            </Link>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-12 text-text-muted">
+                                        <Brain className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                                        <p className="text-sm">No interviews yet</p>
+                                        <Link href="/recruiter/interviews/create">
+                                            <Button variant="primary" size="sm" className="mt-4" leftIcon={<Plus className="w-3.5 h-3.5" />}>
+                                                Create your first interview
+                                            </Button>
+                                        </Link>
+                                    </div>
+                                )}
                             </div>
 
-                            {/* Top Tech Stacks — empty state */}
+                            {/* Top Tech Stacks & Quick Actions */}
                             <div className="glass rounded-2xl border border-white/8 p-6">
                                 <h2 className="font-semibold text-text-primary mb-5">Top Tech Stacks</h2>
-                                <div className="text-center py-8 text-text-muted">
-                                    <p className="text-xs text-text-muted/60">Tech stack data will appear after candidates apply</p>
-                                </div>
+                                {analytics?.topTechStacks && analytics.topTechStacks.length > 0 ? (
+                                    <div className="space-y-3">
+                                        {analytics.topTechStacks.map((ts, i) => (
+                                            <div key={ts.name} className="flex items-center gap-3">
+                                                <span className="w-5 text-xs font-bold text-text-muted">{i + 1}.</span>
+                                                <div className="flex-1">
+                                                    <div className="flex justify-between text-xs mb-1">
+                                                        <span className="text-text-primary font-medium">{ts.name}</span>
+                                                        <span className="text-text-muted">{ts.count} interview{ts.count !== 1 ? "s" : ""}</span>
+                                                    </div>
+                                                    <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                                        <div className="h-full rounded-full bg-gradient-to-r from-neon-cyan to-neon-purple transition-all"
+                                                            style={{ width: `${Math.min(100, (ts.count / Math.max(analytics.totalInterviews, 1)) * 100)}%` }} />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8 text-text-muted">
+                                        <p className="text-xs text-text-muted/60">Tech stack data will appear after candidates apply</p>
+                                    </div>
+                                )}
 
                                 <div className="mt-6 pt-5 border-t border-white/8">
                                     <h3 className="text-xs font-semibold text-text-muted mb-3 uppercase tracking-wider">Quick Actions</h3>

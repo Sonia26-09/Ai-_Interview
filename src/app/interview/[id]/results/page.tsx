@@ -102,6 +102,24 @@ export default function InterviewResultsPage() {
                     sessionStorage.removeItem(sessionKey);
                 });
             }
+
+            // ── Save submission for recruiter analytics ─────────────
+            // Always fires — API uses upsert so duplicate calls are safe
+            const roundScores: { type: string; score: number }[] = [];
+            if (apt) roundScores.push({ type: "aptitude", score: Math.round((apt.score / Math.max(apt.totalPoints, 1)) * 100) });
+            if (cod) roundScores.push({ type: "coding", score: cod.overallScore ?? 0 });
+            if (hrRes) roundScores.push({ type: "hr", score: hrRes.overallScore ?? 0 });
+
+            fetch(`/api/interviews/${params.id}/submissions`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    overallScore: generated.overallScore,
+                    roundScores,
+                }),
+            }).catch((err) => {
+                console.error("Submission save error:", err);
+            });
         }
     }, [params.id]);
 
@@ -113,9 +131,9 @@ export default function InterviewResultsPage() {
     }));
 
     const barData = [
-        { name: "Aptitude", score: aptitude ? Math.round((aptitude.score / aptitude.totalPoints) * 100) : report.topicBreakdown[0]?.score ?? 0, color: "#3b82f6" },
-        { name: "Coding", score: coding?.overallScore ?? report.topicBreakdown[1]?.score ?? 0, color: "#00f5ff" },
-        { name: "HR", score: hr?.overallScore ?? report.topicBreakdown[2]?.score ?? 0, color: "#a855f7" },
+        ...(aptitude ? [{ name: "Aptitude", score: Math.round((aptitude.score / aptitude.totalPoints) * 100), color: "#3b82f6" }] : []),
+        ...(coding ? [{ name: "Coding", score: coding.overallScore ?? 0, color: "#00f5ff" }] : []),
+        ...(hr ? [{ name: "HR", score: hr.overallScore ?? 0, color: "#a855f7" }] : []),
     ];
 
     const handleCopyReport = () => {

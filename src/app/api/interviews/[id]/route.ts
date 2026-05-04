@@ -67,23 +67,50 @@ export async function GET(
             recruiterName = creator?.name || "Recruiter";
         }
 
+        // Count actual questions per round from Question collection
+        const Question = (await import("@/lib/models/Question")).default;
+        const allQuestions = await Question.find({ interviewId: int._id }).select("roundId type").lean();
+        const questionCountByRound: Record<string, number> = {};
+        const questionCountByType: Record<string, number> = {};
+        allQuestions.forEach((q: any) => {
+            const rid = q.roundId?.toString() || "";
+            questionCountByRound[rid] = (questionCountByRound[rid] || 0) + 1;
+            const qtype = q.type || "";
+            questionCountByType[qtype] = (questionCountByType[qtype] || 0) + 1;
+        });
+        const hasQuestionDocs = allQuestions.length > 0;
+
         const interview = {
             id: int._id.toString(),
             title: int.title,
             role: int.role,
             company: recruiterName || "",
             description: int.description,
-            rounds: (int.rounds || []).map((r: any) => ({
-                id: r._id?.toString() || r.id,
-                type: r.type,
-                title: r.title,
-                duration: r.duration,
-                difficulty: r.difficulty,
-                questionCount: r.questionCount,
-                techStack: r.techStack || [],
-                isRequired: r.isRequired,
-                order: r.order,
-            })),
+            rounds: (int.rounds || []).map((r: any) => {
+                const roundId = r._id?.toString() || r.id;
+                // Try matching by roundId first, then by type (for broken roundId data), then stored value
+                const dynamicCount = questionCountByRound[roundId];
+                const typeCount = questionCountByType[r.type];
+                let finalCount: number;
+                if (dynamicCount !== undefined && dynamicCount > 0) {
+                    finalCount = dynamicCount;
+                } else if (hasQuestionDocs && typeCount !== undefined && typeCount > 0) {
+                    finalCount = typeCount;
+                } else {
+                    finalCount = r.questionCount;
+                }
+                return {
+                    id: roundId,
+                    type: r.type,
+                    title: r.title,
+                    duration: r.duration,
+                    difficulty: r.difficulty,
+                    questionCount: finalCount,
+                    techStack: r.techStack || [],
+                    isRequired: r.isRequired,
+                    order: r.order,
+                };
+            }),
             status: int.status,
             createdBy: int.createdBy.toString(),
             deadline: int.deadline || null,

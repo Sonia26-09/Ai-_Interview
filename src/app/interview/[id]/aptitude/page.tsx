@@ -37,6 +37,23 @@ export default function AptitudeRoundPage() {
     const [questions, setQuestions] = useState<AptitudeQuestion[]>([]);
     const [isLoadingQuestions, setIsLoadingQuestions] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [interviewRounds, setInterviewRounds] = useState<string[]>(["aptitude", "coding", "hr"]);
+    const [isRecruiterInterview, setIsRecruiterInterview] = useState(false);
+
+    // Fetch interview config to know available rounds
+    useEffect(() => {
+        async function fetchRounds() {
+            try {
+                const res = await fetch(`/api/interviews/${interviewId}?public=true`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const roundTypes = (data.interview?.rounds || []).map((r: any) => r.type);
+                    if (roundTypes.length > 0) setInterviewRounds(roundTypes);
+                }
+            } catch {}
+        }
+        fetchRounds();
+    }, [interviewId]);
 
     const [timeLeft, setTimeLeft] = useState(TOTAL_TIME);
     const [currentQ, setCurrentQ] = useState(0);
@@ -49,50 +66,28 @@ export default function AptitudeRoundPage() {
     const [expandedQ, setExpandedQ] = useState<number | null>(0);
     const [isGenerating, setIsGenerating] = useState(false);
 
-    // ── Fetch interview config and generate questions ─────────────────
+    // ── Fetch interview config and load recruiter-defined questions ─────
     useEffect(() => {
         async function loadQuestions() {
             try {
-                // 1. Try to fetch interview config from DB
-                const configRes = await fetch(`/api/interviews/${interviewId}?public=true`);
-                if (configRes.ok) {
-                    const configData = await configRes.json();
-                    const aptitudeRound = configData.interview?.rounds?.find(
-                        (r: any) => r.type === "aptitude"
-                    );
-
-                    if (aptitudeRound && aptitudeRound.questionCount) {
-                        const count = aptitudeRound.questionCount;
-                        const difficulty = aptitudeRound.difficulty || "Medium";
-
-                        // 2. Generate questions dynamically via Gemini
-                        const genRes = await fetch("/api/generate-questions", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                count,
-                                difficulty,
-                                roundType: "aptitude",
-                            }),
-                        });
-
-                        if (genRes.ok) {
-                            const genData = await genRes.json();
-                            if (genData.questions && genData.questions.length > 0) {
-                                setQuestions(genData.questions);
-                                setSelected(new Array(genData.questions.length).fill(null));
-                                setFlagged(new Array(genData.questions.length).fill(false));
-                                setIsLoadingQuestions(false);
-                                return;
-                            }
-                        }
+                // 1. Try to fetch recruiter-defined questions from DB
+                const questionsRes = await fetch(`/api/interviews/${interviewId}/questions?roundType=aptitude`);
+                if (questionsRes.ok) {
+                    const questionsData = await questionsRes.json();
+                    if (questionsData.questions && questionsData.questions.length > 0) {
+                        setQuestions(questionsData.questions);
+                        setSelected(new Array(questionsData.questions.length).fill(null));
+                        setFlagged(new Array(questionsData.questions.length).fill(false));
+                        setIsRecruiterInterview(true);
+                        setIsLoadingQuestions(false);
+                        return;
                     }
                 }
             } catch (err) {
-                console.error("Failed to generate questions:", err);
+                console.error("Failed to fetch recruiter questions:", err);
             }
 
-            // 3. Fallback to mock questions (for practice templates)
+            // 2. Fallback to mock questions (for practice templates)
             setQuestions(mockAptitudeQuestions as AptitudeQuestion[]);
             setSelected(new Array(mockAptitudeQuestions.length).fill(null));
             setFlagged(new Array(mockAptitudeQuestions.length).fill(false));
@@ -161,8 +156,8 @@ export default function AptitudeRoundPage() {
                     <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-neon-purple to-neon-cyan flex items-center justify-center mx-auto mb-6 animate-pulse">
                         <Brain className="w-10 h-10 text-background" />
                     </div>
-                    <h2 className="text-2xl font-bold font-display mb-2">Generating Questions...</h2>
-                    <p className="text-text-muted text-sm">AI is preparing your aptitude questions</p>
+                    <h2 className="text-2xl font-bold font-display mb-2">Loading Questions...</h2>
+                    <p className="text-text-muted text-sm">Preparing your aptitude questions</p>
                     <div className="flex justify-center gap-1.5 mt-6">
                         {[0, 1, 2].map(i => (
                             <span key={i} className="w-2.5 h-2.5 rounded-full bg-neon-cyan animate-bounce"
@@ -362,7 +357,8 @@ export default function AptitudeRoundPage() {
                                                 </div>
                                             </div>
 
-                                            {/* AI Explanation */}
+                                            {/* AI Explanation — only for mock/dummy interviews */}
+                                            {!isRecruiterInterview && (
                                             <div className="p-4 rounded-xl bg-neon-purple/5 border border-neon-purple/20">
                                                 <div className="flex items-center gap-2 mb-2">
                                                     <Brain className="w-3.5 h-3.5 text-neon-purple" />
@@ -370,8 +366,10 @@ export default function AptitudeRoundPage() {
                                                 </div>
                                                 <p className="text-sm text-text-secondary leading-relaxed">{fb.explanation}</p>
                                             </div>
+                                            )}
 
-                                            {/* Quick Tip */}
+                                            {/* Quick Tip — only for mock/dummy interviews */}
+                                            {!isRecruiterInterview && (
                                             <div className="p-3 rounded-xl bg-yellow-400/5 border border-yellow-400/20 flex items-start gap-2.5">
                                                 <Lightbulb className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
                                                 <div>
@@ -379,6 +377,7 @@ export default function AptitudeRoundPage() {
                                                     <p className="text-xs text-text-secondary leading-relaxed">{fb.tip}</p>
                                                 </div>
                                             </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -388,14 +387,24 @@ export default function AptitudeRoundPage() {
 
                     {/* Navigation */}
                     <div className="flex gap-3 justify-center">
-                        <Link href={`/interview/${params.id}/coding`}>
-                            <Button variant="primary" rightIcon={<ArrowRight className="w-4 h-4" />}>
-                                Continue to Coding Round
-                            </Button>
-                        </Link>
-                        <Link href="/student/dashboard">
-                            <Button variant="secondary">Back to Dashboard</Button>
-                        </Link>
+                        {interviewRounds.includes('coding') ? (
+                            <>
+                                <Link href={`/interview/${params.id}/coding`}>
+                                    <Button variant="primary" rightIcon={<ArrowRight className="w-4 h-4" />}>
+                                        Continue to Coding Round
+                                    </Button>
+                                </Link>
+                                <Link href={`/interview/${params.id}/results`}>
+                                    <Button variant="secondary">Skip to Results</Button>
+                                </Link>
+                            </>
+                        ) : (
+                            <Link href={`/interview/${params.id}/results`}>
+                                <Button variant="primary" rightIcon={<ArrowRight className="w-4 h-4" />}>
+                                    View Results
+                                </Button>
+                            </Link>
+                        )}
                     </div>
                 </div>
             </div>
